@@ -1,4 +1,4 @@
-"""Install SQLTensor, its MariaDB VECTOR schema, and verified Granite weights."""
+"""Install SQLT, its MariaDB VECTOR schema, and verified Granite weights."""
 import argparse
 import fcntl
 import json
@@ -60,7 +60,7 @@ def configure(existing):
     env = read_env()
     if not (ROOT / '.env').exists() and not existing:
         defaults = dict(SQLTENSOR_DB_HOST='127.0.0.1', SQLTENSOR_DB_PORT='3308',
-            SQLTENSOR_DB_NAME='SQLTensor', SQLTENSOR_DB_USER='sqltensor',
+            SQLTENSOR_DB_NAME='SQLT', SQLTENSOR_DB_USER='sqlt',
             SQLTENSOR_DB_PASSWORD=secrets.token_hex(24),
             SQLTENSOR_ROOT_PASSWORD=secrets.token_hex(24), SQLTENSOR_ADMIN_PORT='8089')
         defaults.update(env)
@@ -128,11 +128,11 @@ def database_stage():
     return result, model
 
 def inspect(device='auto'):
-    report = dict(project='SQLTensor', python=sys.version.split()[0],
+    report = dict(project='SQLT', python=sys.version.split()[0],
         supported_python=(3,10) <= sys.version_info[:2] <= (3,13),
         free_project_disk_gib=round(shutil.disk_usage(ROOT).free/1024**3,1),
         env_exists=(ROOT/'.env').exists(),venv_exists=(ROOT/'.venv/bin/python').exists(),
-        expected_database='SQLTensor', default_port=3308)
+        expected_database='SQLT', default_port=3308)
     devices = nvidia_devices() if device != 'cpu' else []
     build, reason = preferred_build(device, devices)
     report['pytorch_plan'] = dict(requested=device, candidate_build=build,
@@ -169,7 +169,7 @@ def main():
     if a.existing_db and a.phpmyadmin:p.error('--phpmyadmin requires managed Docker')
     with (ROOT/'.install.lock').open('w') as lock:
         try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-        except BlockingIOError:raise RuntimeError('Another SQLTensor installation is running') from None
+        except BlockingIOError:raise RuntimeError('Another SQLT installation is running') from None
         if a.system_deps:system_dependencies()
         if not a.database_only and shutil.disk_usage(ROOT).free < 35*1024**3:
             # A verified existing install does not need fresh download space.
@@ -178,13 +178,13 @@ def main():
         configure(a.existing_db)
         python, torch_report=environment(not a.database_only, a.device)
         if not a.existing_db:
-            compose=compose_command()+['--project-name','sqltensor','--env-file',str(ROOT/'.env'),'-f',str(ROOT/'compose.yaml')]
+            compose=compose_command()+['--project-name','sqlt','--env-file',str(ROOT/'.env'),'-f',str(ROOT/'compose.yaml')]
             command(['docker','info'],stdout=subprocess.DEVNULL)
             command(compose+['up','-d','db'])
             if a.phpmyadmin:command(compose+['--profile','tools','up','-d','phpmyadmin'])
         db_result=subprocess.run([str(python),str(ROOT/'install.py'),'--db-worker'],cwd=ROOT,text=True,capture_output=True,check=True)
         status=json.loads(db_result.stdout)
-        print('MariaDB native VECTOR and all SQLTensor tables are ready.',flush=True)
+        print('MariaDB native VECTOR and all SQLT tables are ready.',flush=True)
         if a.database_only:
             print('Schema installed. Run ./install.sh to download, import and verify the model.');return
         model=status['model']
@@ -201,12 +201,12 @@ def main():
         if not a.keep_source:
             if (ROOT/'.conversion').exists():shutil.rmtree(ROOT/'.conversion')
             (ROOT/'reference-logits.npz').unlink(missing_ok=True)
-        report=dict(project='SQLTensor',repo=REPO,source_commit=REVISION,ready=True,
-            database=read_env().get('SQLTENSOR_DB_NAME','SQLTensor'),
+        report=dict(project='SQLT',repo=REPO,source_commit=REVISION,ready=True,
+            database=read_env().get('SQLTENSOR_DB_NAME','SQLT'),
             source_checkpoints_kept=a.keep_source,offline_chat_smoke=True,
             pytorch=torch_report)
         (ROOT/'installation-report.json').write_text(json.dumps(report,indent=2)+'\n')
-        print('SQLTensor installation complete. Start the terminal chat with ./chat',flush=True)
+        print('SQLT installation complete. Start the terminal chat with ./chat',flush=True)
 
 if __name__=='__main__':
     try:main()

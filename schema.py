@@ -1,4 +1,4 @@
-"""Create the SQLTensor native VECTOR tables without loading a model."""
+"""Create the SQLT native VECTOR tables without loading a model."""
 from database import connect
 
 def initialize():

@@ -1,4 +1,4 @@
--- SQLTensor schema. Execute in an empty, dedicated MariaDB 11.8+ database.
+-- SQLT schema. Execute in an empty, dedicated MariaDB 11.8+ database.
 CREATE TABLE IF NOT EXISTS moe_model(id INT PRIMARY KEY,repo TEXT,source_commit CHAR(40),config JSON,generation_config JSON,tokenizer_config JSON,tokenizer_structure JSON,model_card LONGTEXT,status VARCHAR(20),revision BIGINT);
 
 CREATE TABLE IF NOT EXISTS moe_parameters(id INT AUTO_INCREMENT PRIMARY KEY,name VARCHAR(200) UNIQUE,layer_no INT,expert_no INT,shape JSON,dimensions INT,row_count INT,sha256 CHAR(64),role VARCHAR(30),UNIQUE(name,expert_no));

@@ -3,8 +3,8 @@ services:
     image: mariadb:11.8.9
     restart: unless-stopped
     environment:
-      MARIADB_DATABASE: ${SQLTENSOR_DB_NAME:-SQLTensor}
-      MARIADB_USER: ${SQLTENSOR_DB_USER:-sqltensor}
+      MARIADB_DATABASE: ${SQLTENSOR_DB_NAME:-SQLT}
+      MARIADB_USER: ${SQLTENSOR_DB_USER:-sqlt}
       MARIADB_PASSWORD: ${SQLTENSOR_DB_PASSWORD:?Run install.sh to generate .env}
       MARIADB_ROOT_PASSWORD: ${SQLTENSOR_ROOT_PASSWORD:?Run install.sh to generate .env}
     ports:

@@ -1,8 +1,8 @@
-# SQLTensor
+# SQLT
 
 **SQL-stored neural weights, selectively loaded MoE experts, CPU/CUDA PyTorch inference.**
 
-SQLTensor maps IBM Granite 3.1 3B A800M Instruct into MariaDB native `VECTOR`
+SQLT maps IBM Granite 3.1 3B A800M Instruct into MariaDB native `VECTOR`
 columns and relational metadata. A terminal chat reconstructs the model from
 the database. The learned router selects experts; SQL retrieves the selected
 matrices by parameter ID, and PyTorch performs the neural arithmetic.
@@ -45,7 +45,7 @@ Installation performs these stages:
 2. Creates `.venv`, selects CPU/CUDA PyTorch 2.8.0 automatically, validates it,
    and installs the application dependencies.
 3. Starts an isolated MariaDB 11.8.9 Compose service on `127.0.0.1:3308`.
-4. Tests native vector support and creates all ten model tables in `SQLTensor`.
+4. Tests native vector support and creates all ten model tables in `SQLT`.
 5. Downloads the pinned official model files and validates checkpoint SHA-256.
 6. Imports each actual matrix row as a native vector and creates expert bindings.
 7. Compares every stored coefficient to its source, then checks two lossless
@@ -239,10 +239,10 @@ performance advantage over equivalent file-backed inference has been established
 ## Stopping the database
 
 ```bash
-docker compose --project-name sqltensor --env-file .env -f compose.yaml stop
+docker compose --project-name sqlt --env-file .env -f compose.yaml stop
 ```
 
-The named `sqltensor_database` volume persists model data. A later installer run
+The named `sqlt_database` volume persists model data. A later installer run
 starts the service again. Deleting that volume deletes the imported model; no
 volume deletion command is part of installation.
 

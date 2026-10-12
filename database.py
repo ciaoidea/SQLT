@@ -1,4 +1,4 @@
-"""Portable SQLTensor database connection; no embedded credentials."""
+"""Portable SQLT database connection; no embedded credentials."""
 import os
 from pathlib import Path
 import pymysql
@@ -24,7 +24,7 @@ def connect():
         raise RuntimeError('SQLTENSOR_DB_PASSWORD is missing; run ./install.sh first')
     return pymysql.connect(host=cfg.get('SQLTENSOR_DB_HOST', '127.0.0.1'),
         port=int(cfg.get('SQLTENSOR_DB_PORT', '3308')),
-        user=cfg.get('SQLTENSOR_DB_USER', 'sqltensor'), password=password,
-        database=cfg.get('SQLTENSOR_DB_NAME', 'SQLTensor'), charset='utf8mb4',
+        user=cfg.get('SQLTENSOR_DB_USER', 'sqlt'), password=password,
+        database=cfg.get('SQLTENSOR_DB_NAME', 'SQLT'), charset='utf8mb4',
         init_command='SET SESSION group_concat_max_len=33554432',
         cursorclass=pymysql.cursors.DictCursor, read_timeout=600, write_timeout=600)
