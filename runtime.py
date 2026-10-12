@@ -18,7 +18,7 @@ from tokenizers import Tokenizer
 from transformers import AutoConfig,AutoModelForCausalLM,PreTrainedTokenizerFast
 from database import connect
 from terminal_ui import TerminalChat
-from model_tools import SYSTEM_INSTRUCTIONS,generate_with_tools,decode_protocol_call,decode_decision
+from model_tools import CHAT_INSTRUCTIONS,SYSTEM_INSTRUCTIONS,generate_response,decode_protocol_call,decode_decision
 from resource_policy import memory_budgets,preferred_device,calibrate
 
 torch.set_num_threads(int(os.environ.get('MODEL_THREADS','2')))
@@ -409,6 +409,7 @@ class DatabaseMoE:
 
 def main():
     parser=argparse.ArgumentParser(prog="sqlt",description=__doc__);parser.add_argument('--cache-mib',type=int,default=1536);parser.add_argument('--int8',action='store_true',help='Approximate INT8 expert execution; SQL weights remain unchanged')
+    parser.add_argument('--math-tools',action='store_true',help='Enable experimental model-selected mathematical tools (may misroute ordinary questions)')
     parser.add_argument('--max-tokens',type=int,default=512,help='Maximum generated tokens per chat response')
     parser.add_argument('--device',choices=['auto','cuda','cpu'],default='auto',help='Prefer CUDA when available; fall back to CPU')
     parser.add_argument('--host-cache-mib',type=int,default=6144,help='Maximum RAM cache for GPU experts; 0 disables it')
@@ -421,11 +422,11 @@ def main():
     if args.command=='chat':print('Loading SQLT…',flush=True)
     model=DatabaseMoE(args.cache_mib,quantized_experts=args.int8,device=args.device,host_cache_mib=args.host_cache_mib,db_workers=args.db_workers)
     model.tools_enabled=False
-    messages=[{'role':'system','content':SYSTEM_INSTRUCTIONS}]
+    messages=[{'role':'system','content':SYSTEM_INSTRUCTIONS if args.math_tools else CHAT_INSTRUCTIONS}]
     try:
         if args.command=='status':print(json.dumps(model.status(),ensure_ascii=False));return
         if args.command=='ask':
-            messages.append({'role':'user','content':args.text});print(json.dumps(generate_with_tools(model,messages,args.tokens),ensure_ascii=False,indent=2));return
+            messages.append({'role':'user','content':args.text});print(json.dumps(generate_response(model,messages,args.tokens,math_tools=args.math_tools),ensure_ascii=False,indent=2));return
         ui=TerminalChat()
         ui.banner(torch.cuda.get_device_name()+' (CUDA)' if model.device.type=='cuda' else 'CPU')
         while True:
@@ -497,7 +498,7 @@ def main():
                 try:
                     with ui.pause_control() as pause:
                         model.pause_callback=pause.checkpoint
-                        result=generate_with_tools(model,messages,max_tokens=args.max_tokens,callback=stream)
+                        result=generate_response(model,messages,max_tokens=args.max_tokens,callback=stream,math_tools=args.math_tools)
                 finally:
                     model.cache.progress_callback=None
                     model.pause_callback=None

@@ -3,6 +3,8 @@ import json
 import time
 from math_engine import calculate,validate_request
 
+CHAT_INSTRUCTIONS = 'Sei un assistente utile. Rispondi in italiano in modo conciso.'
+
 SYSTEM_INSTRUCTIONS = (
     'Sei un assistente utile. Rispondi in italiano in modo conciso. '
     'For mathematical calculations output ONLY a JSON object: '
@@ -107,3 +109,12 @@ def generate_with_tools(model,messages,max_tokens=512,callback=None):
     finally:
         model.tools_enabled=previous_tools
         model.planning_mode=previous_planning
+
+
+def generate_response(model, messages, max_tokens=512, callback=None, math_tools=False):
+    """Default chat has no tool prompt, protocol, or routing generation."""
+    if math_tools:
+        return generate_with_tools(model, messages, max_tokens, callback)
+    model.tools_enabled = False
+    model.planning_mode = False
+    return model.generate(messages, max_tokens=max_tokens, callback=callback)

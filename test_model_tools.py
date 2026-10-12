@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import Mock,patch
-from model_tools import decode_call,decode_decision,generate_with_tools
+from model_tools import decode_call,decode_decision,generate_with_tools,generate_response,CHAT_INSTRUCTIONS
 
 class ToolTests(unittest.TestCase):
     def test_model_decision_uses_real_result_without_second_generation(self):
@@ -59,6 +59,18 @@ class ToolTests(unittest.TestCase):
         stream.assert_called_once_with('Ciao!')
         self.assertFalse(model.tools_enabled)
         self.assertFalse(model.planning_mode)
+
+    def test_default_chat_has_no_mathematical_instructions_or_dispatch(self):
+        model=Mock()
+        model.generate.return_value={'answer':'Risposta normale.'}
+        messages=[{'role':'system','content':CHAT_INSTRUCTIONS}, {'role':'user','content':'Cosa è Directa?'}]
+        stream=Mock()
+        with patch('model_tools.calculate') as calculate:
+            generate_response(model,messages,callback=stream)
+        model.generate.assert_called_once_with(messages,max_tokens=512,callback=stream)
+        calculate.assert_not_called()
+        self.assertNotIn('calculate',CHAT_INSTRUCTIONS)
+        self.assertFalse(model.tools_enabled)
 
     def test_protocol_validation(self):
         self.assertEqual(decode_decision('{"action":"answer"}'),{'action':'answer'})

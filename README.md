@@ -331,14 +331,16 @@ output. This changes presentation only, not model inference or learning.
 
 ### Model-selected mathematical tool
 
-Granite answers ordinary conversation directly and streams the response. When
-it chooses a calculation, it generates a compact structured operation with
-arguments instead of prose. The application validates only this model-generated
-protocol; it never dispatches user text by language keywords or extracts a
-formula from the user's sentence. A valid call invokes SymPy and displays the
-actual result directly, without another neural explanation pass. There is no
-mandatory preliminary planning generation, keeping normal conversation on the
-same context for KV-cache reuse. Full tool schemas are not supplied.
+Default chat uses only a short conversational system prompt and streams a
+single neural response. It does not supply mathematical instructions or dispatch
+tools. The experimental automatic math integration is now opt-in with
+`sqlt --math-tools`: production responses showed that its instructions can
+misroute ordinary entity questions as calculus requests. It is not considered
+reliable. No keyword-based user-language router is used.
+
+In experimental math mode Granite chooses a structured operation and arguments.
+Valid calls invoke SymPy and display the actual result without another neural
+explanation pass. This remains distinct from the model's own understanding.
 The `/math` shortcut and word-based routing have been removed.
 
 The local executor evaluates arithmetic and supported functions (`sqrt`, `sin`,
@@ -463,3 +465,50 @@ backpropagation and persistence; they are not an end-to-end `/learn` benchmark.
 Independent gradient tests compare losses, gradients and updated parameters
 against the original training path. MariaDB tests cover batched vector writes,
 rollback, revision conflicts and restore using temporary tables.
+
+
+### Read-only learning comparisons
+
+To compare the currently applied training run with its original weights:
+
+```bash
+.venv/bin/python evaluate_learning.py --run 7 \
+  --question "Che cosa è Directa SIM?" \
+  --question "In quale città e in quale anno è stata fondata Directa SIM?"
+```
+
+The evaluator asks the same questions in fresh contexts, with a neutral system
+prompt and no source text. It emits the current answers first, then loads the
+checksum-verified original selected parameters from training history into RAM
+and emits the previous answers. Database weights and revision are unchanged.
+Expert execution uses the same approximate INT8 path as CPU chat. Truncated
+answers are explicitly marked `finish_reason: length`. This comparison is a
+qualitative diagnostic, not proof of comprehension or a general knowledge score.
+
+
+### Learning optimizer
+
+File learning now defaults to AdamW at learning rate `1e-5`, with no weight
+decay, instead of SGD at `1e-4`. A production one-pass run on Directa changed the
+selected parameters by only about `1.1e-6` of their combined L2 norm under SGD;
+validation loss improved only slightly. This motivated an adaptive optimizer,
+but does not establish that AdamW learns those facts after one pass. The
+selected parameters, one-pass schedule, SQL persistence and validation regression
+check are retained. AdamW requires two extra moment tensors in RAM (about
+48 MiB for 6.3 million FP32 parameters). Optimizer state is temporary and is not
+resumed across separate training runs. To reproduce the original optimizer:
+
+```bash
+./learn /path/to/file.txt --optimizer sgd --learning-rate 0.0001
+```
+
+A successful run means finite updates passed the held-out loss check and were
+saved, not that an answer-level knowledge test passed. Compare fresh-context
+answers before calling a factual lesson successful.
+
+The read-only comparison of Directa run 7 produced identical before/after
+answers on both probes: it confused Directa SIM with a phone SIM and gave the
+incorrect founding place/year "Milano, 2006". This demonstrates no answer-level
+improvement on these probes under the CPU INT8 inference path. The AdamW
+replacement is covered by gradient/update tests, but its factual learning on
+this production corpus has not yet been established.

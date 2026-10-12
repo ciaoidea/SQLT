@@ -183,6 +183,14 @@ def update_loss(model, loss, optimizer):
     return float(loss.detach())
 
 
+def make_optimizer(parameters, name, learning_rate):
+    if name == 'adamw':
+        return torch.optim.AdamW(parameters, lr=learning_rate, weight_decay=0.0)
+    if name == 'sgd':
+        return torch.optim.SGD(parameters, lr=learning_rate)
+    raise ValueError('Unsupported optimizer')
+
+
 def train_step(model, batch, optimizer):
     optimizer.zero_grad(set_to_none=True)
     loss = model(input_ids=batch, labels=batch, use_cache=False, output_router_logits=False).loss
@@ -198,7 +206,8 @@ def main():
     schedule.add_argument('--one-pass', action='store_true', help='Train each training block once (default)')
     parser.add_argument('--sequence-length', type=int, default=64)
     parser.add_argument('--last-layers', type=int, default=1)
-    parser.add_argument('--learning-rate', type=float, default=1e-4)
+    parser.add_argument('--learning-rate', type=float, default=1e-5)
+    parser.add_argument('--optimizer', choices=('adamw', 'sgd'), default='adamw')
     parser.add_argument('--cache-mib', type=int, default=2048)
     parser.add_argument('--max-bytes', type=int, default=8 * 1024 * 1024)
     parser.add_argument('--max-validation-regression', type=float, default=0.05)
@@ -244,7 +253,7 @@ def main():
         selected = select_parameters(runtime.model, args.last_layers)
         metrics = dict(input_sha256=hashlib.sha256(raw).hexdigest(), tokens=len(ids),
                        steps=steps, sequence_length=args.sequence_length,
-                       last_layers=args.last_layers, learning_rate=args.learning_rate,
+                       last_layers=args.last_layers, learning_rate=args.learning_rate, optimizer=args.optimizer,
                        trained_parameters=sum(p.numel() for p in selected.values()),
                        train_blocks=len(training), validation_blocks=len(validation))
         print(json.dumps(metrics), flush=True)
@@ -276,7 +285,7 @@ def main():
                 raise ValueError('Non-finite validation loss; nothing saved')
             return value
         metrics['validation_before'] = evaluate()
-        optimizer = torch.optim.SGD(selected.values(), lr=args.learning_rate)
+        optimizer = make_optimizer(selected.values(), args.optimizer, args.learning_rate)
         for step in range(steps):
             if prepared:
                 optimizer.zero_grad(set_to_none=True)

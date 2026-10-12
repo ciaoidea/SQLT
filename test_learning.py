@@ -6,8 +6,9 @@ import unittest
 import torch
 from transformers import GraniteMoeConfig, GraniteMoeForCausalLM
 from database import connect
-from learn import blocks, select_parameters, train_step, save_weights, restore, PreparedTraining, update_loss
+from learn import blocks, select_parameters, train_step, save_weights, restore, PreparedTraining, update_loss, make_optimizer
 from runtime import SQLExperts, load_parameter
+from evaluate_learning import original_weights
 
 
 class LearningTests(unittest.TestCase):
@@ -73,6 +74,25 @@ class LearningTests(unittest.TestCase):
                 torch.testing.assert_close(selected_full[name], selected_fast[name])
         with self.assertRaises(ValueError): PreparedTraining(fast, batches, 2, max_mib=0)
 
+    def test_adamw_training_updates_selected_weights_and_remains_finite(self):
+        torch.manual_seed(23)
+        cfg = GraniteMoeConfig(vocab_size=32, hidden_size=16, intermediate_size=8,
+            num_hidden_layers=2, num_attention_heads=2, num_key_value_heads=1,
+            num_local_experts=2, num_experts_per_tok=1)
+        model = GraniteMoeForCausalLM(cfg).eval()
+        selected = select_parameters(model, 1)
+        before = {n:p.detach().clone() for n,p in model.named_parameters()}
+        batch = torch.tensor([[1,2,3,4,5,6]])
+        prepared = PreparedTraining(model, [batch], 1)
+        optimizer = make_optimizer(selected.values(), 'adamw', 1e-5)
+        optimizer.zero_grad(set_to_none=True)
+        update_loss(model, prepared.loss(0), optimizer)
+        self.assertTrue(any(not torch.equal(before[n],p) for n,p in selected.items()))
+        self.assertTrue(all(bool(torch.isfinite(p).all()) for p in selected.values()))
+        for name, parameter in model.named_parameters():
+            if name not in selected: self.assertTrue(torch.equal(before[name],parameter))
+        with self.assertRaises(ValueError):make_optimizer(selected.values(),'unknown',1e-5)
+
     @unittest.skipUnless(os.environ.get('SQLT_TEST_DB') == '1', 'Set SQLT_TEST_DB=1 for temporary-table MariaDB tests')
     def test_native_vector_commit_conflict_and_restore(self):
         # Temporary tables shadow production names only in this connection.
@@ -111,6 +131,9 @@ class LearningTests(unittest.TestCase):
                     else: cur.executemany('INSERT INTO moe_scalars VALUES(%s,%s,%s)', [(pid,i,float(x)) for i,x in enumerate(weight)])
             c.commit()
             run = save_weights(c, metadata, selected, 7, {'test':True})
+            historical = original_weights(c, run)
+            for name in selected:
+                torch.testing.assert_close(historical[name], selected[name] - 0.25)
             with c.cursor() as cur:
                 cur.execute('SELECT * FROM moe_parameters')
                 for meta in cur.fetchall(): self.assertTrue(torch.equal(load_parameter(c, meta), selected[meta['name']]))
