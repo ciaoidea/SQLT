@@ -396,7 +396,7 @@ class DatabaseMoE:
             if callback:callback(self.tokenizer.decode(generated,skip_special_tokens=True))
             if getattr(self,'planning_mode',False) and decode_decision(self.tokenizer.decode(generated,skip_special_tokens=True)) is not None:
                 finish_reason='tool_call';break
-            if getattr(self,'tools_enabled',False) and decode_protocol_call(self.tokenizer.decode(generated,skip_special_tokens=True)) is not None:
+            if getattr(self,'tools_enabled',False) and (decode_protocol_call(self.tokenizer.decode(generated,skip_special_tokens=True)) is not None or decode_decision(self.tokenizer.decode(generated,skip_special_tokens=True)) is not None):
                 finish_reason='tool_call';break
         seconds=time.perf_counter()-start
         self._past=past;self._processed_ids=processed

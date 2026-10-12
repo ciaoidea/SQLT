@@ -3,17 +3,16 @@ import json
 import time
 from math_engine import calculate,validate_request
 
-SYSTEM_INSTRUCTIONS = 'Sei un assistente utile. Rispondi in italiano in modo conciso.'
-PLANNER_INSTRUCTIONS = (
-    'Decide whether the latest user request needs a mathematical calculation. '
-    'Return ONLY one JSON object. For ordinary conversation return {"action":"answer"}. '
-    'For math return {"action":"calculate","expression":"...","operation":"..."} with needed arguments. '
-    'Operations: evaluate (arithmetic/equations), derivative, integral (also antiderivatives), limit, series, ode. '
-    'Optional arguments: variable (default x), order, variables (mixed partial list), lower and upper '
-    '(both STRING bounds for definite integrals; infinity "oo"), point (STRING for limits/series), direction (+,-,+-). '
-    'Expressions use exp, log, sin, cos, sqrt, pi, ^ and explicit parentheses. '
-    'ODE: diff(y(x),x,2)+y(x)=0. Choose the calculation from the meaning of the request. '
-    'Never write tool definitions or invent a tool response. Do not compute the answer yourself.')
+SYSTEM_INSTRUCTIONS = (
+    'Sei un assistente utile. Rispondi in italiano in modo conciso. '
+    'For mathematical calculations output ONLY a JSON object: '
+    '{"action":"calculate","expression":"...","operation":"..."}. '
+    'Operations: evaluate, derivative, integral (also antiderivatives), limit, series, ode. '
+    'Optional arguments: variable (default x), order, variables (mixed partial list), '
+    'lower and upper (STRING bounds, infinity "oo"), point (STRING), direction (+,-,+-). '
+    'Expressions use exp, log, sin, cos, sqrt, pi and parentheses. '
+    'ODE syntax: diff(y(x),x,2)+y(x)=0. '
+    'Otherwise answer normally, without JSON. Never print tool schemas or invent tool results.')
 
 
 def decode_decision(answer):
@@ -56,68 +55,54 @@ def decode_call(answer):
     return arguments
 
 
+def protocol_output(text):
+    """Inspect generated output only, never the user's language."""
+    return text.lstrip().startswith(('{', '[', '```', '<|', 'tools', 'tool_response'))
+
+
 def generate_with_tools(model,messages,max_tokens=512,callback=None):
     started=time.perf_counter()
     previous_tools=getattr(model,'tools_enabled',False)
     previous_planning=getattr(model,'planning_mode',False)
-    model.tools_enabled=False
+    model.tools_enabled=True
+    model.planning_mode=False
     total_tokens=0
     try:
-        # No keyword dispatch, expression extraction or user-language parsing.
-        # The neural model itself produces the operation and its arguments.
-        context=[dict(m) for m in messages if m['role']!='system'][-3:]
-        planning=[{'role':'system','content':PLANNER_INSTRUCTIONS}]+context
-        tool=None
-        arguments=None
+        def stream(text):
+            # Hold the short prefix until prose can be distinguished from the
+            # model's internal protocol, then restore progressive rendering.
+            if callback and len(text.lstrip()) >= 8 and not protocol_output(text):
+                callback(text)
+        history=list(messages)
         for attempt in range(2):
-            model.planning_mode=True
-            decision_result=model.generate(planning,max_tokens=min(max_tokens,144),callback=None)
-            total_tokens+=decision_result.get('tokens',0)
-            decision=decode_decision(decision_result['answer'])
-            if decision is None:
-                error='Return only the required JSON decision object; no tool schema or explanation.'
-            elif decision['action']=='answer':break
-            else:
-                arguments={k:v for k,v in decision.items() if k!='action'}
+            result=model.generate(history,max_tokens=max_tokens,callback=stream)
+            total_tokens+=result.get('tokens',0)
+            decision=decode_decision(result['answer'])
+            arguments=({k:v for k,v in decision.items() if k!='action'}
+                       if decision and decision['action']=='calculate' else
+                       decode_protocol_call(result['answer']))
+            if arguments is not None:
                 try:validate_request(**arguments)
                 except (ValueError,TypeError) as exc:
-                    error=f'Invalid calculation arguments: {exc}. Correct the JSON. For antiderivatives use operation integral.'
+                    error=f'Invalid calculation arguments: {exc}. Return corrected calculation JSON only.'
                 else:
                     tool=calculate(**arguments)
+                    # The model already interpreted the question. Show the real
+                    # calculated result directly, without a second neural pass.
+                    result.update(answer=tool['answer'],tool_expression=arguments['expression'],
+                        tool_operation=arguments.get('operation','evaluate'),
+                        tool_result=tool['answer'],tool_seconds=tool['seconds'],finish_reason='tool_result')
                     break
-            planning=[{'role':'system','content':PLANNER_INSTRUCTIONS},
-                *context,{'role':'user','content':error}]
+            elif not protocol_output(result['answer']):
+                break
+            else:
+                error='Invalid internal protocol. Answer normally, or return only valid calculation JSON. Never output schemas or fabricated tool results.'
+            history=[*messages,{'role':'assistant','content':result['answer']},
+                     {'role':'user','content':error}]
         else:
-            return dict(answer='Il modello non ha formulato una chiamata matematica valida. Nessun calcolo eseguito.',
-                        finish_reason='tool_error',tokens=total_tokens,seconds=time.perf_counter()-started)
-        model.planning_mode=False
-        if tool is None:
-            result=model.generate(messages,max_tokens=max_tokens,callback=None)
-            answer=result['answer'].strip()
-            if answer.startswith(('tools','tool_response','tools_response','<|')):
-                result['answer']='Il modello ha generato un protocollo interno non valido. Nessun risultato è stato verificato.'
-                result['finish_reason']='tool_error'
-            if callback:callback(result['answer'])
-        else:
-            # Keep protocol/schema and old failed tool responses out of the
-            # explanation context. The result comes from an actual invocation.
-            question=next(m['content'] for m in reversed(messages) if m['role']=='user')
-            explanation=[{'role':'system','content':
-                'Rispondi in italiano in modo conciso alla domanda usando il risultato verificato fornito. '
-                'Non inventare calcoli, chiamate o risultati di strumenti. Una forma simbolica non risolta '
-                'non implica divergenza. Mantieni esplicita la natura approssimata dei valori numerici.'},
-                {'role':'user','content':question+'\n\nRisultato effettivamente calcolato:\n'+tool['answer']}]
-            result=model.generate(explanation,max_tokens=max_tokens,callback=None)
-            answer=result['answer'].strip()
-            # Never publish a fabricated protocol turn. Numeric results remain
-            # available verbatim if the model outputs protocol instead of prose.
-            if (decode_decision(answer) is not None or decode_protocol_call(answer) is not None
-                    or answer.startswith(('tools','tool_response','tools_response','<|'))):
-                result['answer']=tool['answer']
-            result.update(tool_expression=arguments['expression'],tool_operation=arguments.get('operation','evaluate'),
-                          tool_result=tool['answer'],tool_seconds=tool['seconds'])
-            if callback:callback(result['answer'])
-        result.update(tokens=total_tokens+result.get('tokens',0),seconds=time.perf_counter()-started)
+            result.update(answer='Il modello ha generato un protocollo interno non valido. Nessun calcolo eseguito.',finish_reason='tool_error')
+        if callback:callback(result['answer'])
+        result.update(tokens=total_tokens,seconds=time.perf_counter()-started)
         return result
     finally:
         model.tools_enabled=previous_tools

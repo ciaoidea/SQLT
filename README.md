@@ -331,13 +331,14 @@ output. This changes presentation only, not model inference or learning.
 
 ### Model-selected mathematical tool
 
-Granite first generates a compact structured decision: answer normally or
-calculate, with the operation and arguments. The application validates only this
-model-generated protocol; it never dispatches user text by language keywords or
-extracts a formula from the user's sentence. A valid decision invokes SymPy and
-the actual result is supplied to a separate explanation turn. Full tool schemas
-and earlier failed tool responses are kept out of that explanation context.
-This adds neural generation overhead; it is not the earlier direct fast path.
+Granite answers ordinary conversation directly and streams the response. When
+it chooses a calculation, it generates a compact structured operation with
+arguments instead of prose. The application validates only this model-generated
+protocol; it never dispatches user text by language keywords or extracts a
+formula from the user's sentence. A valid call invokes SymPy and displays the
+actual result directly, without another neural explanation pass. There is no
+mandatory preliminary planning generation, keeping normal conversation on the
+same context for KV-cache reuse. Full tool schemas are not supplied.
 The `/math` shortcut and word-based routing have been removed.
 
 The local executor evaluates arithmetic and supported functions (`sqrt`, `sin`,
@@ -427,7 +428,8 @@ in `/usr/local/bin` for root or `~/.local/bin` for a regular user (that director
 must be on PATH). `./sqlt` also works inside the project folder. Runtime options
 are forwarded, for example `sqlt --device cpu`. The old `chat` launcher is renamed.
 
-Invalid internal protocol is buffered and never streamed to the terminal. One
+A short output prefix is held before streaming prose; recognized internal
+protocol stays hidden. One
 model correction attempt is allowed; if it still fails, chat explicitly reports
 that no valid calculation was performed. This does not guarantee that the model
 always chooses or explains an operation correctly. Restart an already running
