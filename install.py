@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import shlex
 import shutil
 import subprocess
 import sys
@@ -17,6 +18,20 @@ REVISION = 'a02780686e08a03fe0d2679a293b5c74a90efa89'
 
 def command(args, **kwargs):
     return subprocess.run(args, check=True, cwd=ROOT, **kwargs)
+
+def install_launcher(directory=None):
+    directory=Path(directory) if directory is not None else (Path('/usr/local/bin') if os.geteuid()==0 else Path.home()/'.local/bin')
+    directory.mkdir(parents=True,exist_ok=True)
+    target=directory/'sqlt'
+    marker='# SQLT command launcher'
+    if target.exists() or target.is_symlink():
+        if target.is_symlink() or marker not in target.read_text():
+            raise RuntimeError(f'Refusing to overwrite an unrelated command: {target}')
+    target.write_text('#!/bin/sh\n'+marker+'\nexec '+shlex.quote(str(ROOT/'sqlt'))+' "$@"\n')
+    target.chmod(0o755)
+    if str(directory) not in os.environ.get('PATH','').split(os.pathsep):
+        print(f'Add {directory} to PATH to run sqlt from any directory.',flush=True)
+    return target
 
 def compose_command():
     if shutil.which('docker'):
@@ -207,8 +222,9 @@ def main():
             source_checkpoints_kept=a.keep_source,offline_chat_smoke=True,
             features_smoke=True,capabilities=['file_learning_one_pass','model_selected_math','calculus','terminal_markdown','input_history_and_paste','escape_pause'],
             pytorch=torch_report)
+        install_launcher()
         (ROOT/'installation-report.json').write_text(json.dumps(report,indent=2)+'\n')
-        print('SQLT installation complete. Start the terminal chat with ./chat',flush=True)
+        print('SQLT installation complete. Start the terminal chat with sqlt',flush=True)
 
 if __name__=='__main__':
     try:main()

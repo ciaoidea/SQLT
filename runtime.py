@@ -407,7 +407,7 @@ class DatabaseMoE:
     def close(self):self.reset_context();self.cache.close();self.connection.close()
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--cache-mib',type=int,default=1536);parser.add_argument('--int8',action='store_true',help='Approximate INT8 expert execution; SQL weights remain unchanged')
+    parser=argparse.ArgumentParser(prog="sqlt",description=__doc__);parser.add_argument('--cache-mib',type=int,default=1536);parser.add_argument('--int8',action='store_true',help='Approximate INT8 expert execution; SQL weights remain unchanged')
     parser.add_argument('--max-tokens',type=int,default=512,help='Maximum generated tokens per chat response')
     parser.add_argument('--device',choices=['auto','cuda','cpu'],default='auto',help='Prefer CUDA when available; fall back to CPU')
     parser.add_argument('--host-cache-mib',type=int,default=6144,help='Maximum RAM cache for GPU experts; 0 disables it')

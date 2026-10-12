@@ -24,7 +24,7 @@ From the repository directory:
 ```bash
 ./install.sh --check
 ./install.sh
-./chat
+./sqlt
 ```
 
 For Debian/Ubuntu machines missing system packages:
@@ -118,11 +118,11 @@ whose model metadata identifies a different source model or revision.
 ## Terminal chat
 
 ```bash
-./chat
-./chat --max-tokens 1024
-./chat --cache-mib 4096
-./chat --device cpu
-./chat --device cuda
+./sqlt
+./sqlt --max-tokens 1024
+./sqlt --cache-mib 4096
+./sqlt --device cpu
+./sqlt --device cuda
 ```
 
 Automatic mode checks available RAM and GPU memory, then briefly measures a
@@ -144,7 +144,7 @@ GPU eviction usually requires only a RAM-to-GPU transfer. This cache defaults
 to at most 6144 MiB, is reduced to leave room for shared weights and 4096 MiB
 of available system memory,
 and keeps exact BF16 coefficients or original FP32 values as needed. Configure
-it with `./chat --host-cache-mib 6144`; `0` disables it. `/status` reports RAM
+it with `./sqlt --host-cache-mib 6144`; `0` disables it. `/status` reports RAM
 usage, cache hits and database reads. The first request still needs to read
 uncached experts; chat shows elapsed time while waiting for its first token.
 The RAM cache lasts until the chat exits and survives GPU-to-CPU fallback.
@@ -262,7 +262,7 @@ logs/reports are excluded by `.gitignore`.
 ```bash
 ./learn /path/to/text.txt --dry-run
 ./learn /path/to/text.txt --steps 20
-./chat
+./sqlt
 ```
 
 Next-token cross-entropy, backpropagation, gradient clipping and SGD update
@@ -417,3 +417,11 @@ To update an existing configured installation without reimporting ready weights:
 
 `--database-only` creates the core and training-history schema, without installing
 or checking the full inference/training environment.
+
+
+### Launch from any directory
+
+Run `sqlt` to open the terminal chat. The installer registers a command wrapper
+in `/usr/local/bin` for root or `~/.local/bin` for a regular user (that directory
+must be on PATH). `./sqlt` also works inside the project folder. Runtime options
+are forwarded, for example `sqlt --device cpu`. The old `chat` launcher is renamed.

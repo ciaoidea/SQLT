@@ -25,6 +25,23 @@ class InstallerTests(unittest.TestCase):
         self.assertIsNone(report)
         self.assertFalse(any("torch" in str(call.args[0]) for call in command.call_args_list))
 
+    def test_launcher_forwards_arguments_and_refuses_unrelated_file(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)/'project with spaces'
+            root.mkdir()
+            entry=root/'sqlt'
+            entry.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
+            entry.chmod(0o755)
+            destination=Path(folder)/'bin'
+            with patch('install.ROOT',root):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    launcher=install.install_launcher(destination)
+                result=subprocess.run([str(launcher),'--device','cpu'],capture_output=True,text=True,check=True)
+                self.assertEqual(result.stdout.splitlines(),['--device','cpu'])
+                launcher.write_text('unrelated command')
+                with self.assertRaises(RuntimeError):install.install_launcher(destination)
+
     def test_check_never_invokes_package_installation(self):
         with patch("install.nvidia_devices", return_value=[]), \
                 patch("install.probe_torch", return_value={"version": "tested"}), \
