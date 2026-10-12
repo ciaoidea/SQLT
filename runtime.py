@@ -18,7 +18,7 @@ from tokenizers import Tokenizer
 from transformers import AutoConfig,AutoModelForCausalLM,PreTrainedTokenizerFast
 from database import connect
 from terminal_ui import TerminalChat
-from model_tools import TOOLS,SYSTEM_INSTRUCTIONS,generate_with_tools,decode_protocol_call
+from model_tools import SYSTEM_INSTRUCTIONS,generate_with_tools,decode_protocol_call,decode_decision
 from resource_policy import memory_budgets,preferred_device,calibrate
 
 torch.set_num_threads(int(os.environ.get('MODEL_THREADS','2')))
@@ -366,8 +366,7 @@ class DatabaseMoE:
         if revision!=self.metadata['revision']:
             self.reset_context()
             raise RuntimeError('Database weights changed; restart this chat to load the new revision')
-        ids=self.tokenizer.apply_chat_template(messages,tokenize=True,add_generation_prompt=True,return_tensors='pt',
-            **({'tools':TOOLS} if getattr(self,'tools_enabled',False) else {}))
+        ids=self.tokenizer.apply_chat_template(messages,tokenize=True,add_generation_prompt=True,return_tensors='pt')
         if ids.shape[1]>1024:raise ValueError('Local context limit: 1024 tokens; use /reset')
         start=time.perf_counter();generated=[];first_token_seconds=None;finish_reason='length'
         prompt_ids=ids[0].tolist();common=0
@@ -395,6 +394,8 @@ class DatabaseMoE:
                 finish_reason='eos';break
             generated.append(token);current=torch.tensor([[token]],device=self.device)
             if callback:callback(self.tokenizer.decode(generated,skip_special_tokens=True))
+            if getattr(self,'planning_mode',False) and decode_decision(self.tokenizer.decode(generated,skip_special_tokens=True)) is not None:
+                finish_reason='tool_call';break
             if getattr(self,'tools_enabled',False) and decode_protocol_call(self.tokenizer.decode(generated,skip_special_tokens=True)) is not None:
                 finish_reason='tool_call';break
         seconds=time.perf_counter()-start
@@ -419,7 +420,7 @@ def main():
     if args.host_cache_mib<0:parser.error('RAM cache size must be nonnegative')
     if args.command=='chat':print('Loading SQLT…',flush=True)
     model=DatabaseMoE(args.cache_mib,quantized_experts=args.int8,device=args.device,host_cache_mib=args.host_cache_mib,db_workers=args.db_workers)
-    model.tools_enabled=True
+    model.tools_enabled=False
     messages=[{'role':'system','content':SYSTEM_INSTRUCTIONS}]
     try:
         if args.command=='status':print(json.dumps(model.status(),ensure_ascii=False));return
@@ -463,7 +464,7 @@ def main():
                     print('Reloading database weights...',flush=True)
                     model=DatabaseMoE(args.cache_mib,quantized_experts=args.int8,device=args.device,
                         host_cache_mib=args.host_cache_mib,db_workers=args.db_workers)
-                    model.tools_enabled=True
+                    model.tools_enabled=False
                     messages=messages[:1]
                 continue
             if not text:continue

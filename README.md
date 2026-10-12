@@ -331,11 +331,12 @@ output. This changes presentation only, not model inference or learning.
 
 ### Model-selected mathematical tool
 
-Granite receives the native tool schema through its database-stored chat template.
-The model decides whether a question needs calculation and generates the
-`calculate` call with an expression. User text is never dispatched by Italian
-or English keywords. The application validates the model-generated JSON call,
-executes SymPy, returns a `tool_response` to Granite, then generates the answer.
+Granite first generates a compact structured decision: answer normally or
+calculate, with the operation and arguments. The application validates only this
+model-generated protocol; it never dispatches user text by language keywords or
+extracts a formula from the user's sentence. A valid decision invokes SymPy and
+the actual result is supplied to a separate explanation turn. Full tool schemas
+and earlier failed tool responses are kept out of that explanation context.
 This adds neural generation overhead; it is not the earlier direct fast path.
 The `/math` shortcut and word-based routing have been removed.
 
@@ -366,7 +367,7 @@ control applies to chat generation, not the separate learning subprocess.
 
 ### Calculus and differential equations
 
-The same model-selected `calculate` tool now accepts an `operation` argument:
+The same model-selected calculation now accepts an `operation` argument:
 `derivative`, `integral`, `limit`, `series`, or `ode` (default `evaluate`).
 Ask naturally, for example:
 
@@ -425,3 +426,9 @@ Run `sqlt` to open the terminal chat. The installer registers a command wrapper
 in `/usr/local/bin` for root or `~/.local/bin` for a regular user (that directory
 must be on PATH). `./sqlt` also works inside the project folder. Runtime options
 are forwarded, for example `sqlt --device cpu`. The old `chat` launcher is renamed.
+
+Invalid internal protocol is buffered and never streamed to the terminal. One
+model correction attempt is allowed; if it still fails, chat explicitly reports
+that no valid calculation was performed. This does not guarantee that the model
+always chooses or explains an operation correctly. Restart an already running
+chat after runtime updates to load the new code and begin with clean context.

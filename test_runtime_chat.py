@@ -13,8 +13,10 @@ class ChatTests(unittest.TestCase):
         cache=SimpleNamespace(database_loads=12,progress_callback=None)
         model=SimpleNamespace(device=torch.device('cpu'),cache=cache,close=Mock())
         def generate(messages,max_tokens,callback):
+            if getattr(model,'planning_mode',False):
+                return {'answer':'{"action":"answer"}'}
             cache.progress_callback()
-            callback('Ciao')
+            if callback:callback('Ciao')
             return {'answer':'Ciao','finish_reason':'eos'}
         model.generate=generate
         output=io.StringIO()

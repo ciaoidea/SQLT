@@ -5,7 +5,7 @@ from prompt_toolkit import PromptSession
 from rich.console import Console
 from learn import train_step
 from math_engine import perform
-from model_tools import decode_call
+from model_tools import decode_decision
 from terminal_input import PauseControl
 from terminal_ui import TerminalChat
 
@@ -22,7 +22,7 @@ def check():
         'limit':'`1`' in perform('sin(x)/x','limit',point='0'),
         'series':'O(x**5)' in perform('sin(x)','series',order=5),
         'ode':'confermata' in perform('diff(y(x),x,2)+y(x)=0','ode'),
-        'tool_protocol':decode_call('[{"name":"calculate","arguments":{"expression":"x^2","operation":"derivative"}}]') is not None,
+        'tool_protocol':decode_decision('{"action":"calculate","expression":"x^2","operation":"derivative"}') is not None,
         'training_import':callable(train_step),
         'input_editor':callable(PromptSession),
         'terminal_ui':callable(Console) and callable(TerminalChat),
