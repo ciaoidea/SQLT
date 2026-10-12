@@ -4,6 +4,7 @@ Core parameters and routers are resident; routing loads experts from MariaDB
 into bounded RAM and device caches. No checkpoint is read at runtime.
 """
 import argparse,hashlib,json,os,time,warnings
+import gc,subprocess,sys
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -16,6 +17,8 @@ from torch.nn import functional as F
 from tokenizers import Tokenizer
 from transformers import AutoConfig,AutoModelForCausalLM,PreTrainedTokenizerFast
 from database import connect
+from terminal_ui import TerminalChat
+from model_tools import TOOLS,SYSTEM_INSTRUCTIONS,generate_with_tools,decode_protocol_call
 from resource_policy import memory_budgets,preferred_device,calibrate
 
 torch.set_num_threads(int(os.environ.get('MODEL_THREADS','2')))
@@ -343,15 +346,28 @@ class DatabaseMoE:
     def generate(self,messages,max_tokens=512,callback=None):
         self.check_resources()
         try:
+            try:
+                return self._generate(messages,max_tokens,callback)
+            except torch.cuda.OutOfMemoryError:
+                if self.device.type!='cuda':raise
+            warnings.warn('GPU memory exhausted. Retrying on CPU.')
+            self.fallback_to_cpu()
+            if callback:callback('')
             return self._generate(messages,max_tokens,callback)
-        except torch.cuda.OutOfMemoryError:
-            if self.device.type!='cuda':raise
-        warnings.warn('GPU memory exhausted. Retrying on CPU.')
-        self.fallback_to_cpu()
-        if callback:callback('')
-        return self._generate(messages,max_tokens,callback)
+        finally:
+            connection=getattr(self,'connection',None)
+            if connection is not None:connection.commit()
     def _generate(self,messages,max_tokens=512,callback=None):
-        ids=self.tokenizer.apply_chat_template(messages,tokenize=True,add_generation_prompt=True,return_tensors='pt')
+        # Publishing new weights waits for the current response to finish.
+        self.connection.commit()
+        with self.connection.cursor() as cur:
+            cur.execute('SELECT revision FROM moe_model WHERE id=1 LOCK IN SHARE MODE')
+            revision=cur.fetchone()['revision']
+        if revision!=self.metadata['revision']:
+            self.reset_context()
+            raise RuntimeError('Database weights changed; restart this chat to load the new revision')
+        ids=self.tokenizer.apply_chat_template(messages,tokenize=True,add_generation_prompt=True,return_tensors='pt',
+            **({'tools':TOOLS} if getattr(self,'tools_enabled',False) else {}))
         if ids.shape[1]>1024:raise ValueError('Local context limit: 1024 tokens; use /reset')
         start=time.perf_counter();generated=[];first_token_seconds=None;finish_reason='length'
         prompt_ids=ids[0].tolist();common=0
@@ -369,6 +385,8 @@ class DatabaseMoE:
         generation=json.loads(self.metadata['generation_config']);eos=generation.get('eos_token_id',self.tokenizer.eos_token_id)
         eos=set(eos if isinstance(eos,list) else [eos]);before=self.cache.stats()
         for _ in range(max_tokens):
+            pause_callback=getattr(self,'pause_callback',None)
+            if pause_callback:pause_callback()
             result=self.model(input_ids=current,past_key_values=past,use_cache=True,logits_to_keep=1)
             processed.extend(current[0].tolist())
             token=int(result.logits[0,-1].argmax());past=result.past_key_values
@@ -377,6 +395,8 @@ class DatabaseMoE:
                 finish_reason='eos';break
             generated.append(token);current=torch.tensor([[token]],device=self.device)
             if callback:callback(self.tokenizer.decode(generated,skip_special_tokens=True))
+            if getattr(self,'tools_enabled',False) and decode_protocol_call(self.tokenizer.decode(generated,skip_special_tokens=True)) is not None:
+                finish_reason='tool_call';break
         seconds=time.perf_counter()-start
         self._past=past;self._processed_ids=processed
         return dict(device=str(self.device),finish_reason=finish_reason,reused_context_tokens=reused,answer=self.tokenizer.decode(generated,skip_special_tokens=True),tokens=len(generated),seconds=seconds,first_token_seconds=first_token_seconds,tokens_per_second=len(generated)/max(seconds,1e-9),router_seconds=self.cache.router_seconds-before['router_seconds'],expert_read_seconds=self.cache.read_seconds-before['expert_read_seconds'],expert_prepare_seconds=self.cache.prepare_seconds-before['expert_prepare_seconds'],expert_load_seconds=self.cache.load_seconds-before['expert_load_seconds'],expert_transfer_mib=(self.cache.transferred_bytes/1024**2)-before['expert_transfer_mib'],cache_misses=self.cache.misses-before['misses'],
@@ -397,34 +417,76 @@ def main():
     args=parser.parse_args()
     if args.max_tokens<1 or (args.command=='ask' and args.tokens<1):parser.error('Token limit must be positive')
     if args.host_cache_mib<0:parser.error('RAM cache size must be nonnegative')
-    if args.command=='chat':print('Caricamento SQLT...',flush=True)
+    if args.command=='chat':print('Loading SQLT…',flush=True)
     model=DatabaseMoE(args.cache_mib,quantized_experts=args.int8,device=args.device,host_cache_mib=args.host_cache_mib,db_workers=args.db_workers)
-    messages=[{'role':'system','content':'Sei un assistente utile. Rispondi in italiano in modo conciso.'}]
+    model.tools_enabled=True
+    messages=[{'role':'system','content':SYSTEM_INSTRUCTIONS}]
     try:
         if args.command=='status':print(json.dumps(model.status(),ensure_ascii=False));return
         if args.command=='ask':
-            messages.append({'role':'user','content':args.text});print(json.dumps(model.generate(messages,args.tokens),ensure_ascii=False,indent=2));return
-        print('Device: '+(torch.cuda.get_device_name()+' (CUDA)' if model.device.type=='cuda' else 'CPU'),flush=True)
+            messages.append({'role':'user','content':args.text});print(json.dumps(generate_with_tools(model,messages,args.tokens),ensure_ascii=False,indent=2));return
+        ui=TerminalChat()
+        ui.banner(torch.cuda.get_device_name()+' (CUDA)' if model.device.type=='cuda' else 'CPU')
         while True:
-            text=input('You> ').strip()
+            text=ui.read_input().strip()
+            if text=='/help':ui.help();continue
             if text=='/quit':break
             if text=='/status':print(json.dumps(model.status(),ensure_ascii=False));continue
             if text=='/reset':messages=messages[:1];model.reset_context();continue
+            if text=='/learn' or text.startswith('/learn '):
+                path_text=text[len('/learn'):].strip()
+                if not path_text:
+                    print('Usage: /learn /path/to/file.txt — train each training block once.');continue
+                # The remainder is a literal path, including any spaces.
+                if len(path_text)>=2 and path_text[0]==path_text[-1] and path_text[0] in ('"', "'"):
+                    path_text=path_text[1:-1]
+                source=Path(path_text).expanduser()
+                try:
+                    with source.open('rb') as stream:
+                        raw=stream.read(8*1024*1024+1)
+                    if len(raw)>8*1024*1024:raise ValueError('File exceeds the 8 MiB limit')
+                    content=raw.decode('utf-8-sig',errors='strict')
+                    count=len(model.tokenizer.encode(content,add_special_tokens=False))
+                    if count-int(count*0.9)<2 or int(count*0.9)<2:
+                        raise ValueError('File too short: provide at least 20 tokens')
+                except (OSError,UnicodeError,ValueError) as exc:
+                    print(f'Cannot learn this file: {exc}');continue
+                print('Training once over every training block; 10% is held out for validation. This may take minutes.',flush=True)
+                model.close();model=None
+                gc.collect()
+                if torch.cuda.is_available():torch.cuda.empty_cache()
+                try:
+                    result=subprocess.run([sys.executable,str(Path(__file__).with_name('learn.py')),
+                        '--one-pass',str(source)],check=False)
+                    print('Training completed.' if result.returncode==0 else 'Training did not complete successfully; see the trainer output.',flush=True)
+                finally:
+                    print('Reloading database weights...',flush=True)
+                    model=DatabaseMoE(args.cache_mib,quantized_experts=args.int8,device=args.device,
+                        host_cache_mib=args.host_cache_mib,db_workers=args.db_workers)
+                    model.tools_enabled=True
+                    messages=messages[:1]
+                continue
             if not text:continue
             messages.append({'role':'user','content':text})
             try:
                 printed=''
-                print('Model> ',end='',flush=True)
+                if ui.enabled:ui.start()
+                else:print('Model> ',end='',flush=True)
                 waiting_started=time.perf_counter();last_progress=0.;waiting=True;progress_visible=False
                 def progress():
                     nonlocal last_progress,progress_visible
+                    pause_callback=getattr(model,'pause_callback',None)
+                    if pause_callback:pause_callback()
                     now=time.perf_counter()
                     if waiting and now-last_progress>=2:
-                        print(f'\rAttendi: {now-waiting_started:.0f}s, {model.cache.database_loads} esperti letti dal database',end='',flush=True)
+                        if ui.enabled:ui.progress(now-waiting_started)
+                        else:print(f'\rAttendi: {now-waiting_started:.0f}s, {model.cache.database_loads} esperti letti dal database',end='',flush=True)
                         last_progress=now;progress_visible=True
                 def stream(value):
                     nonlocal printed,waiting
                     waiting=False
+                    if ui.enabled:
+                        ui.stream(value);return
                     if progress_visible and not printed:print('\r\033[2KModel> ',end='',flush=True)
                     if value=='' and printed:
                         print('\nModel> ',end='',flush=True);printed='';return
@@ -432,12 +494,24 @@ def main():
                     if value.startswith(printed):print(value[len(printed):],end='',flush=True);printed=value
                 model.cache.progress_callback=progress
                 try:
-                    result=model.generate(messages,max_tokens=args.max_tokens,callback=stream)
-                finally:model.cache.progress_callback=None
-                stream(result['answer']);print()
+                    with ui.pause_control() as pause:
+                        model.pause_callback=pause.checkpoint
+                        result=generate_with_tools(model,messages,max_tokens=args.max_tokens,callback=stream)
+                finally:
+                    model.cache.progress_callback=None
+                    model.pause_callback=None
+                stream(result['answer'])
+                if ui.enabled:ui.finish(result)
+                else:print()
                 if result['finish_reason']=='length':print(f"[Response stopped at the {args.max_tokens}-token limit. Increase --max-tokens to allow longer answers.]")
                 messages.append({'role':'assistant','content':result['answer']})
-            except Exception as exc:messages.pop();print('\r\033[2KError: '+str(exc))
-    except (EOFError,KeyboardInterrupt):print()
-    finally:model.close()
+            except Exception as exc:
+                messages.pop()
+                if ui.enabled:ui.error(exc)
+                else:print('\r\033[2KError: '+str(exc))
+    except (EOFError,KeyboardInterrupt):
+        if 'ui' in locals():ui.finish()
+        print()
+    finally:
+        if model is not None:model.close()
 if __name__=='__main__':main()

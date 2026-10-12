@@ -18,3 +18,10 @@ CREATE TABLE IF NOT EXISTS moe_events(id BIGINT AUTO_INCREMENT PRIMARY KEY,kind 
 CREATE TABLE IF NOT EXISTS moe_vectors_512(parameter_id INT,unit_no INT,coefficients VECTOR(512) NOT NULL,PRIMARY KEY(parameter_id,unit_no),FOREIGN KEY(parameter_id) REFERENCES moe_parameters(id));
 
 CREATE TABLE IF NOT EXISTS moe_vectors_1536(parameter_id INT,unit_no INT,coefficients VECTOR(1536) NOT NULL,PRIMARY KEY(parameter_id,unit_no),FOREIGN KEY(parameter_id) REFERENCES moe_parameters(id));
+
+-- Text fine-tuning metadata and native-vector rollback copies.
+CREATE TABLE IF NOT EXISTS moe_training_runs(id BIGINT AUTO_INCREMENT PRIMARY KEY,base_revision BIGINT NOT NULL,saved_revision BIGINT NOT NULL,metrics JSON NOT NULL,created TIMESTAMP DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS moe_training_parameters(run_id BIGINT NOT NULL,parameter_id INT NOT NULL,sha256 CHAR(64) NOT NULL,PRIMARY KEY(run_id,parameter_id)) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS moe_training_scalars(run_id BIGINT NOT NULL,parameter_id INT NOT NULL,unit_no INT NOT NULL,coefficient DOUBLE NOT NULL,PRIMARY KEY(run_id,parameter_id,unit_no)) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS moe_training_vectors_512(run_id BIGINT NOT NULL,parameter_id INT NOT NULL,unit_no INT NOT NULL,coefficients VECTOR(512) NOT NULL,PRIMARY KEY(run_id,parameter_id,unit_no)) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS moe_training_vectors_1536(run_id BIGINT NOT NULL,parameter_id INT NOT NULL,unit_no INT NOT NULL,coefficients VECTOR(1536) NOT NULL,PRIMARY KEY(run_id,parameter_id,unit_no)) ENGINE=InnoDB;

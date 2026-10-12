@@ -28,6 +28,39 @@ class ChatTests(unittest.TestCase):
         self.assertIsNone(cache.progress_callback)
         model.close.assert_called_once()
 
+    def test_learn_file_uses_one_pass_and_reloads(self):
+        import tempfile
+        from pathlib import Path
+        first=SimpleNamespace(device=torch.device('cpu'),close=Mock(),
+            tokenizer=SimpleNamespace(encode=lambda *a,**k:list(range(50))))
+        second=SimpleNamespace(close=Mock())
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'example with spaces.txt'
+            path.write_text('An explanation about triangles.',encoding='utf-8')
+            with patch('sys.argv',['runtime.py','chat']), \
+                 patch('runtime.DatabaseMoE',side_effect=[first,second]) as loader, \
+                 patch('runtime.subprocess.run',return_value=SimpleNamespace(returncode=0)) as trainer, \
+                 patch('builtins.input',side_effect=[f'/learn {path}','/quit']), \
+                 redirect_stdout(io.StringIO()):
+                main()
+            self.assertEqual(trainer.call_args.args[0][-2:],['--one-pass',str(path)])
+            self.assertEqual(loader.call_count,2)
+            self.assertTrue(path.exists())
+            first.close.assert_called_once()
+            second.close.assert_called_once()
+
+    def test_missing_file_and_help_do_not_start_training(self):
+        model=SimpleNamespace(device=torch.device('cpu'),close=Mock())
+        with patch('sys.argv',['runtime.py','chat']), \
+             patch('runtime.DatabaseMoE',return_value=model) as loader, \
+             patch('runtime.subprocess.run') as trainer, \
+             patch('builtins.input',side_effect=['/learn','/learn /nonexistent/sqlt-file.txt','/quit']), \
+             redirect_stdout(io.StringIO()):
+            main()
+        loader.assert_called_once()
+        trainer.assert_not_called()
+
+
 
 if __name__=='__main__':
     unittest.main()

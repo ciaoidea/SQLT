@@ -7,8 +7,8 @@ columns and relational metadata. A terminal chat reconstructs the model from
 the database. The learned router selects experts; SQL retrieves the selected
 matrices by parameter ID, and PyTorch performs the neural arithmetic.
 
-This is a database-backed inference experiment. It does not implement online
-learning, automatic weight updates, or neural inference inside SQL. It is not
+This is a database-backed inference and text fine-tuning experiment.
+Conversation does not automatically update weights; neural arithmetic runs in PyTorch. It is not
 a RAG application and does not store a serialized model checkpoint as a BLOB.
 
 ## Install on Linux
@@ -256,3 +256,162 @@ MariaDB native vectors are documented in the
 
 Private `.env` files, virtual environments, downloaded checkpoints and local
 logs/reports are excluded by `.gitignore`.
+
+## Learn from a UTF-8 text file
+
+```bash
+./learn /path/to/text.txt --dry-run
+./learn /path/to/text.txt --steps 20
+./chat
+```
+
+Next-token cross-entropy, backpropagation, gradient clipping and SGD update
+actual base weights. Any UTF-8 language supported by the tokenizer is accepted;
+quality depends on the pretrained model and corpus. This trainer supports the
+SQLT Granite MoE architecture, not arbitrary model architectures.
+
+By default, attention projections and normalization weights in the last layer,
+plus the final normalization, are trained. Experts, embeddings and routers stay
+frozen. `--last-layers N` expands the trainable subset and increases memory use.
+This is partial fine-tuning, not full-model training. Training uses CPU without
+INT8 operators; it can be substantially slower and use more RAM than chat.
+
+Defaults: one training pass, 64-token sequences, 2,048 MiB expert cache, 8 MiB input limit.
+By default every training block is used once in file order. Explicit --steps
+cycles through the blocks if its count exceeds the number of blocks. The final 10% of tokens are reserved for validation.
+Saving is refused for non-finite values, conflicting model revisions, or
+validation loss worsening by more than 0.05 (`--max-validation-regression`).
+Lower loss does not prove understanding: test independent questions and
+unrelated tasks. Small or repetitive corpora can overfit and damage abilities.
+
+Updated coefficients replace native VECTOR/scalar rows atomically, together
+with checksums and model revision. Original changed coefficients remain in
+native vector/scalar backup tables (`moe_training_*`) with run metadata. No
+checkpoint or adapter is saved on disk. Backups consume DB space and are
+retained. The command prints `saved_run`; undo that currently applied run with:
+
+```bash
+./learn --restore RUN_ID
+```
+
+Restore is atomic and creates another revision. Only the currently applied run
+can be undone; this is not a general history manager. Restart chats after
+training or restore. Existing chats refuse their next response if their loaded
+revision differs from the DB. A running response holds a shared revision lock,
+so publishing updated weights waits for it. The original source-weight equality
+verifier will correctly find differences after fine-tuning.
+
+`--dry-run` loads the model/tokenizer and prints a plan without writing or
+training. Installing this feature alone does not modify model weights.
+
+
+### Teach from a file in terminal chat
+
+```text
+/learn /path/to/lesson.txt
+```
+
+`/learn` accepts a UTF-8 file path (spaces are supported). Each training block
+is used exactly once; the final 10% of tokens is held out for validation, not
+trained. A pass therefore requires multiple optimizer steps for a longer file.
+The chat releases its model, runs the trainer, then reloads the saved DB weights
+and clears the conversation. Bare `/learn` displays usage. Inline explanations
+and `/learn N text` have been replaced by the file command.
+
+Standalone `./learn /path/to/file.txt` also defaults to one complete training
+pass. Explicit `--steps N` remains available for advanced use.
+
+### Terminal appearance
+
+Interactive terminals display a compact SQLT header, a colored input prompt,
+live Markdown responses (including code blocks), a waiting indicator and brief
+response timing. `/help` lists commands. The renderer uses Rich; redirected
+output, `TERM=dumb`, `NO_COLOR`, or a missing Rich installation retains plain
+output. This changes presentation only, not model inference or learning.
+
+### Model-selected mathematical tool
+
+Granite receives the native tool schema through its database-stored chat template.
+The model decides whether a question needs calculation and generates the
+`calculate` call with an expression. User text is never dispatched by Italian
+or English keywords. The application validates the model-generated JSON call,
+executes SymPy, returns a `tool_response` to Granite, then generates the answer.
+This adds neural generation overhead; it is not the earlier direct fast path.
+The `/math` shortcut and word-based routing have been removed.
+
+The local executor evaluates arithmetic and supported functions (`sqrt`, `sin`,
+`cos`, `tan`, `log`, `exp`, `abs`) and solves polynomial equations up to degree 4
+with one unknown in the real domain. Roots are checked by substitution.
+Expression syntax uses a restricted AST (no eval), input limits and a 5-second
+worker timeout. This syntax handling executes expressions chosen by the model;
+it does not interpret the user's language. At most one valid calculation is run per turn; one argument-repair attempt is allowed.
+
+No model weights are changed by tool use. Correct tool selection, translation
+of a word problem and faithful explanation remain model capabilities, not
+accuracy guarantees. `ask` JSON output includes the selected expression and
+verified tool result for inspection. Training commands remain separate.
+
+### Input editing and pause
+
+Interactive input supports Up/Down to recall complete messages from this session,
+bracketed multiline paste (terminal Paste / Ctrl+Shift+V), Enter to send and
+Alt+Enter to insert a newline. Input history stays in RAM; no history file is
+written. Prompt Toolkit provides editing, with a plain-input fallback.
+
+While generating, Esc pauses and another Esc resumes. Pause is cooperative:
+current tensor or database operations finish first, then the next token/expert
+checkpoint waits. It does not cancel the response or release the model from RAM.
+The terminal settings are restored on completion, error or Ctrl+C. This pause
+control applies to chat generation, not the separate learning subprocess.
+
+### Calculus and differential equations
+
+The same model-selected `calculate` tool now accepts an `operation` argument:
+`derivative`, `integral`, `limit`, `series`, or `ode` (default `evaluate`).
+Ask naturally, for example:
+
+- Find an antiderivative of `x*exp(x^2)`.
+- Differentiate `x^3*sin(x)` twice with respect to x.
+- Integrate `exp(-x^2)` from minus infinity to infinity.
+- Find the limit of `sin(x)/x` as x approaches zero.
+- Expand `sin(x)` about zero through the term in x^5.
+- Solve `y''(x) + y(x) = 0`.
+
+The model must select the operation and arguments; no user-language keyword
+router is involved. Tool arguments include `variable` (x/y/z/t), `order`, a
+mixed-partial `variables` list, string bounds `lower`/`upper`, a string `point`
+and limit `direction` (+, -, or +-). The executor accepts `oo` for infinity.
+ODE expressions use `diff(y(x),x,2)` or the corresponding y(t) notation.
+Only general ODE solutions are currently exposed, without initial conditions,
+PDEs or coupled systems. Orders are bounded (calculus up to 10, ODE syntax up to 4).
+
+Indefinite integral results mention the arbitrary constant C and are checked
+by differentiation when SymPy can confirm equality. General ODE solutions are
+checked by substitution. Two-sided finite-point limits compare both sides.
+Unevaluated integrals and non-finite results are explicitly identified. SymPy
+cannot provide explicit solutions for every problem; worker timeouts (10 seconds
+for calculus, 5 for arithmetic) return an error rather than hanging chat.
+No numeric quadrature fallback or universal convergence proof is implemented.
+Model tool selection and final explanation still need independent evaluation.
+
+Invalid tool argument choices are returned to the model for one correction
+attempt; they are never executed as another operation by a language keyword rule.
+
+
+### Installer feature coverage
+
+A full `./install.sh` installation includes the file trainer, model-selected
+mathematical/calculus tools, Rich terminal rendering, Prompt Toolkit input
+editing and Esc pause control. Both schema creation paths (`schema.py` and
+`schema.sql`) include native-vector training rollback tables. Full installs run
+`feature_check.py` offline plus the existing offline chat startup check before
+writing a ready installation report with capability metadata.
+
+To update an existing configured installation without reimporting ready weights:
+
+```bash
+./install.sh --existing-db
+```
+
+`--database-only` creates the core and training-history schema, without installing
+or checking the full inference/training environment.

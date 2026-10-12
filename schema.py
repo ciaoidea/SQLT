@@ -16,3 +16,23 @@ def initialize():
         for dimension in (512,1536):
             cur.execute(f'''CREATE TABLE IF NOT EXISTS moe_vectors_{dimension}(parameter_id INT,unit_no INT,coefficients VECTOR({dimension}) NOT NULL,PRIMARY KEY(parameter_id,unit_no),FOREIGN KEY(parameter_id) REFERENCES moe_parameters(id))''')
         c.commit()
+        initialize_history(c)
+
+
+def initialize_history(connection):
+    # DDL is deliberately outside the weight-update transaction.
+    with connection.cursor() as cur:
+        cur.execute('''CREATE TABLE IF NOT EXISTS moe_training_runs (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY, base_revision BIGINT NOT NULL,
+            saved_revision BIGINT NOT NULL, metrics JSON NOT NULL,
+            created TIMESTAMP DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB''')
+        cur.execute('''CREATE TABLE IF NOT EXISTS moe_training_parameters (
+            run_id BIGINT NOT NULL, parameter_id INT NOT NULL, sha256 CHAR(64) NOT NULL,
+            PRIMARY KEY(run_id,parameter_id)) ENGINE=InnoDB''')
+        for dim in (0, 512, 1536):
+            table = f'moe_training_vectors_{dim}' if dim else 'moe_training_scalars'
+            field = f'coefficients VECTOR({dim})' if dim else 'coefficient DOUBLE'
+            cur.execute(f'''CREATE TABLE IF NOT EXISTS {table} (
+                run_id BIGINT NOT NULL, parameter_id INT NOT NULL, unit_no INT NOT NULL,
+                {field} NOT NULL, PRIMARY KEY(run_id,parameter_id,unit_no)) ENGINE=InnoDB''')
+    connection.commit()

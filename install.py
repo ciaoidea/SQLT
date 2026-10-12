@@ -196,6 +196,7 @@ def main():
                 raise RuntimeError('Unsupported model status: '+str(model['status']))
             for phase in ('weights','reference','compare'):
                 stage(python,phase+'-verification-progress','verify.py',(phase,'.conversion'),offline=True)
+        stage(python,'features-smoke','feature_check.py',offline=True)
         stage(python,'offline-chat-smoke','runtime.py',('--device',a.device,'--cache-mib','3584','--int8','chat'),input_text='/quit\n',offline=True)
         if a.benchmark:stage(python,'benchmark-progress','benchmark.py',offline=True)
         if not a.keep_source:
@@ -204,6 +205,7 @@ def main():
         report=dict(project='SQLT',repo=REPO,source_commit=REVISION,ready=True,
             database=read_env().get('SQLTENSOR_DB_NAME','SQLT'),
             source_checkpoints_kept=a.keep_source,offline_chat_smoke=True,
+            features_smoke=True,capabilities=['file_learning_one_pass','model_selected_math','calculus','terminal_markdown','input_history_and_paste','escape_pause'],
             pytorch=torch_report)
         (ROOT/'installation-report.json').write_text(json.dumps(report,indent=2)+'\n')
         print('SQLT installation complete. Start the terminal chat with ./chat',flush=True)
