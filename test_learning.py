@@ -6,7 +6,7 @@ import unittest
 import torch
 from transformers import GraniteMoeConfig, GraniteMoeForCausalLM
 from database import connect
-from learn import blocks, select_parameters, train_step, save_weights, restore
+from learn import blocks, select_parameters, train_step, save_weights, restore, PreparedTraining, update_loss
 from runtime import SQLExperts, load_parameter
 
 
@@ -49,6 +49,30 @@ class LearningTests(unittest.TestCase):
         for name, parameter in model.named_parameters():
             if name not in selected: self.assertTrue(torch.equal(before[name], parameter), name)
 
+    def test_prepared_prefix_matches_full_losses_gradients_and_updates(self):
+        torch.manual_seed(19)
+        cfg = GraniteMoeConfig(vocab_size=32, hidden_size=16, intermediate_size=8,
+            num_hidden_layers=3, num_attention_heads=2, num_key_value_heads=1,
+            num_local_experts=2, num_experts_per_tok=1, embedding_multiplier=2.0)
+        import copy
+        full = GraniteMoeForCausalLM(cfg).eval()
+        fast = copy.deepcopy(full)
+        selected_full = select_parameters(full, 2)
+        selected_fast = select_parameters(fast, 2)
+        batches = [torch.tensor([[1,2,3,4,5]]), torch.tensor([[6,7,8]])]
+        prepared = PreparedTraining(fast, batches, 2)
+        opt_full = torch.optim.SGD(selected_full.values(), lr=0.03)
+        opt_fast = torch.optim.SGD(selected_fast.values(), lr=0.03)
+        for index in (0,1,0):
+            baseline = train_step(full, batches[index], opt_full)
+            opt_fast.zero_grad(set_to_none=True)
+            actual = update_loss(fast, prepared.loss(index), opt_fast)
+            self.assertAlmostEqual(actual, baseline, places=6)
+            for name in selected_full:
+                torch.testing.assert_close(selected_full[name].grad, selected_fast[name].grad)
+                torch.testing.assert_close(selected_full[name], selected_fast[name])
+        with self.assertRaises(ValueError): PreparedTraining(fast, batches, 2, max_mib=0)
+
     @unittest.skipUnless(os.environ.get('SQLT_TEST_DB') == '1', 'Set SQLT_TEST_DB=1 for temporary-table MariaDB tests')
     def test_native_vector_commit_conflict_and_restore(self):
         # Temporary tables shadow production names only in this connection.
@@ -73,8 +97,8 @@ class LearningTests(unittest.TestCase):
             selected = {}
             for pid,dim in enumerate((0,512,1536), 1):
                 name = f'test{dim}'
-                weight = torch.arange(dim if dim else 3, dtype=torch.float32)
-                if dim: weight = weight.reshape(1,dim)
+                weight = torch.arange(dim * 130 if dim else 3, dtype=torch.float32)
+                if dim: weight = weight.reshape(130,dim)
                 sha = hashlib.sha256(weight.numpy().astype('<f4').tobytes()).hexdigest()
                 meta = dict(id=pid,name=name,shape=json.dumps(list(weight.shape)),dimensions=dim,
                             row_count=len(weight),sha256=sha,role='core')
@@ -83,7 +107,7 @@ class LearningTests(unittest.TestCase):
                 with c.cursor() as cur:
                     cur.execute('INSERT INTO moe_parameters(id,name,shape,dimensions,row_count,sha256,role) VALUES(%s,%s,%s,%s,%s,%s,%s)',
                                 (pid,name,meta['shape'],dim,len(weight),sha,'core'))
-                    if dim: cur.execute(f'INSERT INTO moe_vectors_{dim} VALUES(%s,0,%s)', (pid,weight.numpy().astype('<f4').tobytes()))
+                    if dim: cur.executemany(f'INSERT INTO moe_vectors_{dim} VALUES(%s,%s,%s)', [(pid,i,row.numpy().astype('<f4').tobytes()) for i,row in enumerate(weight)])
                     else: cur.executemany('INSERT INTO moe_scalars VALUES(%s,%s,%s)', [(pid,i,float(x)) for i,x in enumerate(weight)])
             c.commit()
             run = save_weights(c, metadata, selected, 7, {'test':True})

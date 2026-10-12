@@ -3,6 +3,8 @@ import argparse
 import hashlib
 import json
 import math
+import time
+import uuid
 from pathlib import Path
 import torch
 from database import connect
@@ -38,7 +40,10 @@ def select_parameters(model, last_layers):
 
 def save_weights(connection, metadata, selected, expected_revision, metrics):
     initialize_history(connection)
+    staging = 'sqlt_stage_' + uuid.uuid4().hex
     try:
+        with connection.cursor() as cur:
+            cur.execute(f'CREATE TEMPORARY TABLE {staging}(parameter_id INT,unit_no INT,coefficients LONGBLOB,coefficient DOUBLE,PRIMARY KEY(parameter_id,unit_no)) ENGINE=InnoDB')
         connection.begin()
         with connection.cursor() as cur:
             cur.execute('SELECT revision FROM moe_model WHERE id=1 FOR UPDATE')
@@ -64,9 +69,11 @@ def save_weights(connection, metadata, selected, expected_revision, metrics):
                 cur.execute(f'INSERT INTO {backup} SELECT %s,parameter_id,unit_no,{field} FROM {table} WHERE parameter_id=%s',
                             (run_id, meta['id']))
                 for start in range(0, len(array), 64):
-                    values = [(array[i].tobytes() if dim else float(array[i]), meta['id'], i)
+                    values = [(meta['id'], i, array[i].tobytes() if dim else None, None if dim else float(array[i]))
                               for i in range(start, min(start + 64, len(array)))]
-                    cur.executemany(f'UPDATE {table} SET {field}=%s WHERE parameter_id=%s AND unit_no=%s', values)
+                    cur.executemany(f'INSERT INTO {staging} VALUES(%s,%s,%s,%s)', values)
+                cur.execute(f'UPDATE {table} t JOIN {staging} s ON t.parameter_id=s.parameter_id AND t.unit_no=s.unit_no SET t.{field}=s.{field} WHERE t.parameter_id=%s', (meta['id'],))
+                cur.execute(f'DELETE FROM {staging} WHERE parameter_id=%s', (meta['id'],))
                 cur.execute('UPDATE moe_parameters SET sha256=%s WHERE id=%s',
                             (hashlib.sha256(array.tobytes()).hexdigest(), meta['id']))
             cur.execute('UPDATE moe_model SET revision=%s WHERE id=1', (revision + 1,))
@@ -77,6 +84,9 @@ def save_weights(connection, metadata, selected, expected_revision, metrics):
     except BaseException:
         connection.rollback()
         raise
+    finally:
+        with connection.cursor() as cur:
+            cur.execute(f'DROP TEMPORARY TABLE IF EXISTS {staging}')
 
 
 def restore(connection, run_id):
@@ -113,9 +123,57 @@ def restore(connection, run_id):
         raise
 
 
-def train_step(model, batch, optimizer):
-    optimizer.zero_grad(set_to_none=True)
-    loss = model(input_ids=batch, labels=batch, use_cache=False, output_router_logits=False).loss
+class PreparedTraining:
+    """Exact frozen-prefix activations, processed layer-major in bounded RAM."""
+    def __init__(self, model, batches, last_layers, cache=None, max_mib=512):
+        if model.training or any(p.requires_grad for layer in list(model.model.layers)[:-last_layers] for p in layer.parameters()):
+            raise ValueError('Prefix caching requires evaluation mode and frozen prefix weights')
+        self.model = model
+        self.layers = list(model.model.layers)[-last_layers:]
+        self.cache = cache
+        needed = sum(b.numel() for b in batches) * model.config.hidden_size * 4
+        if needed * 2 > max_mib * 1024**2:
+            raise ValueError('Prepared activations exceed RAM budget; split the input file')
+        self.states = []
+        core = model.model
+        with torch.no_grad():
+            for batch in batches:
+                hidden = core.embed_tokens(batch) * core.embedding_multiplier
+                positions = torch.arange(batch.shape[1], device=hidden.device)
+                position_ids = positions.unsqueeze(0)
+                kwargs = dict(attention_mask=core._update_causal_mask(None, hidden, positions, None, False),
+                    position_ids=position_ids, past_key_values=None, output_attentions=False,
+                    use_cache=False, cache_position=positions, output_router_logits=False,
+                    position_embeddings=core.rotary_emb(hidden, position_ids) if core.rotary_emb is not None else None)
+                self.states.append((hidden, kwargs, batch))
+            try:
+                if cache: cache.layer_limit = cache.limit
+                for number, layer in enumerate(list(core.layers)[:-last_layers]):
+                    if cache: self.clear_experts()
+                    self.states = [(layer(hidden, **kwargs)[0].detach(), kwargs, batch)
+                                   for hidden, kwargs, batch in self.states]
+                    print(json.dumps({'prepared_layer': number + 1,
+                                      'frozen_layers': len(core.layers) - last_layers}), flush=True)
+            finally:
+                if cache:
+                    self.clear_experts()
+                    # Only the trainable suffix needs expert residency now.
+                    cache.layer_limit = cache.limit // last_layers
+
+    def clear_experts(self):
+        self.cache.items.clear()
+        self.cache.bytes = 0
+        self.cache.layer_bytes = {layer: 0 for layer in self.cache.layer_bytes}
+
+    def loss(self, index):
+        hidden, kwargs, labels = self.states[index]
+        for layer in self.layers:
+            hidden = layer(hidden, **kwargs)[0]
+        logits = self.model.lm_head(self.model.model.norm(hidden)) / self.model.config.logits_scaling
+        return self.model.loss_function(logits.float(), labels, vocab_size=self.model.config.vocab_size)
+
+
+def update_loss(model, loss, optimizer):
     if not bool(torch.isfinite(loss)):
         raise ValueError('Non-finite loss; nothing saved')
     loss.backward()
@@ -123,6 +181,12 @@ def train_step(model, batch, optimizer):
                                   1.0, error_if_nonfinite=True)
     optimizer.step()
     return float(loss.detach())
+
+
+def train_step(model, batch, optimizer):
+    optimizer.zero_grad(set_to_none=True)
+    loss = model(input_ids=batch, labels=batch, use_cache=False, output_router_logits=False).loss
+    return update_loss(model, loss, optimizer)
 
 
 def main():
@@ -138,6 +202,7 @@ def main():
     parser.add_argument('--cache-mib', type=int, default=2048)
     parser.add_argument('--max-bytes', type=int, default=8 * 1024 * 1024)
     parser.add_argument('--max-validation-regression', type=float, default=0.05)
+    parser.add_argument('--no-prefix-cache', action='store_true', help='Use the original full-forward training path')
     parser.add_argument('--dry-run', action='store_true', help='Show plan; do not train or write DB')
     args = parser.parse_args()
     if args.restore is not None:
@@ -164,7 +229,7 @@ def main():
     if not text.strip():
         parser.error('Input is empty')
     print('Loading database weights without INT8 for differentiable training...', flush=True)
-    runtime = DatabaseMoE(args.cache_mib, quantized_experts=False, device='cpu', db_workers=0)
+    runtime = DatabaseMoE(args.cache_mib, quantized_experts=False, device='cpu', host_cache_mib=0, db_workers=2)
     try:
         if runtime.model.config.model_type != 'granitemoe':
             raise ValueError('This trainer currently supports the SQLT Granite MoE architecture')
@@ -188,13 +253,21 @@ def main():
         # eval mode removes dropout, but does not disable autograd. Frozen prefix
         # builds no graph; gradients start at the selected late-layer weights.
         runtime.model.eval()
+        started = time.perf_counter()
+        prepared_count = min(steps, len(training))
+        prepared = None if args.no_prefix_cache else PreparedTraining(
+            runtime.model, training[:prepared_count] + validation, args.last_layers, runtime.cache)
+        metrics['preparation_seconds'] = time.perf_counter() - started
+        metrics['load_seconds'] = runtime.load_seconds
+        started = time.perf_counter()
         def evaluate():
             total = 0.0
             count = 0
             with torch.no_grad():
-                for batch in validation:
-                    loss = runtime.model(input_ids=batch, labels=batch, use_cache=False,
-                                         output_router_logits=False).loss
+                for index, batch in enumerate(validation):
+                    loss = (prepared.loss(prepared_count + index) if prepared else
+                            runtime.model(input_ids=batch, labels=batch, use_cache=False,
+                                          output_router_logits=False).loss)
                     n = batch.shape[1] - 1
                     total += float(loss) * n
                     count += n
@@ -205,14 +278,21 @@ def main():
         metrics['validation_before'] = evaluate()
         optimizer = torch.optim.SGD(selected.values(), lr=args.learning_rate)
         for step in range(steps):
-            loss = train_step(runtime.model, training[step % len(training)], optimizer)
+            if prepared:
+                optimizer.zero_grad(set_to_none=True)
+                loss = update_loss(runtime.model, prepared.loss(step % len(training)), optimizer)
+            else:
+                loss = train_step(runtime.model, training[step % len(training)], optimizer)
             print(json.dumps({'step': step + 1, 'training_loss': loss}), flush=True)
         metrics['validation_after'] = evaluate()
         if metrics['validation_after'] > metrics['validation_before'] + args.max_validation_regression:
             raise ValueError('Validation regressed beyond the limit; nothing saved')
+        metrics['training_seconds'] = time.perf_counter() - started
         metadata = {r['name']: r for r in runtime.parameters.values()}
+        started = time.perf_counter()
         run_id = save_weights(runtime.connection, metadata, selected,
                               runtime.metadata['revision'], metrics)
+        metrics['save_seconds'] = time.perf_counter() - started
         print(json.dumps(dict(metrics, saved_run=run_id)), flush=True)
         print('Updated weights are in MariaDB. Restart open chats. Loss is not a comprehension test.')
     finally:

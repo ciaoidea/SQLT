@@ -432,3 +432,32 @@ model correction attempt is allowed; if it still fails, chat explicitly reports
 that no valid calculation was performed. This does not guarantee that the model
 always chooses or explains an operation correctly. Restart an already running
 chat after runtime updates to load the new code and begin with clean context.
+
+
+### Faster file learning
+
+`/learn /path/to/file.txt` still trains each training block once by default and
+writes the same selected base weights transactionally to MariaDB. Frozen layers
+are now processed layer by layer across the corpus. Their exact detached
+activations are kept temporarily in RAM, so updates and both validation passes
+run only the trainable suffix. This also reduces repeated SQL expert reads;
+experts share the existing cache budget during preparation. No INT8 training or
+extra model files are introduced. Preparation is reported per frozen layer.
+
+Activation storage has a 512 MiB budget including a conservative allowance for
+intermediate copies; split large files if the budget is exceeded. The original
+full-forward path remains available with `./learn FILE --no-prefix-cache`.
+SQL persistence batches rows into a connection-local staging table and applies
+joined updates, retaining revision checks, atomic rollback and restore history.
+The initial database load and the first frozen-prefix computation still take
+time; speedup depends on corpus size and repeated updates. Training output
+includes preparation and training timings.
+
+A read-only comparison on the installed 3B model used two 24-token blocks:
+full forward evaluation took 148.15 seconds and prefix preparation plus suffix
+evaluation took 70.79 seconds (2.09x), with matching losses. Expert database
+loads fell from 2,187 to 1,177. These timings exclude initial model loading,
+backpropagation and persistence; they are not an end-to-end `/learn` benchmark.
+Independent gradient tests compare losses, gradients and updated parameters
+against the original training path. MariaDB tests cover batched vector writes,
+rollback, revision conflicts and restore using temporary tables.
