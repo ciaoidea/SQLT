@@ -1,0 +1,32 @@
+services:
+  db:
+    image: mariadb:11.8.9
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: ${SQLTENSOR_DB_NAME:-SQLTensor}
+      MARIADB_USER: ${SQLTENSOR_DB_USER:-sqltensor}
+      MARIADB_PASSWORD: ${SQLTENSOR_DB_PASSWORD:?Run install.sh to generate .env}
+      MARIADB_ROOT_PASSWORD: ${SQLTENSOR_ROOT_PASSWORD:?Run install.sh to generate .env}
+    ports:
+      - "127.0.0.1:${SQLTENSOR_DB_PORT:-3308}:3306"
+    volumes:
+      - database:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+  phpmyadmin:
+    image: phpmyadmin:5.2-apache
+    profiles: [tools]
+    restart: unless-stopped
+    environment:
+      PMA_HOST: db
+      PMA_PORT: 3306
+    ports:
+      - "127.0.0.1:${SQLTENSOR_ADMIN_PORT:-8089}:80"
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  database:
