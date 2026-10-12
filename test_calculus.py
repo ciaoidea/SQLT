@@ -38,6 +38,16 @@ class CalculusTests(unittest.TestCase):
         answer=perform('exp(x^x)','integral')
         self.assertIn('non è una soluzione esplicita',answer)
 
+    def test_unresolved_improper_integral_gets_numeric_fallback(self):
+        answer=perform('x^3/(exp(x)-1)','integral',lower='0',upper='oo')
+        self.assertIn('6.4939394022668291491',answer)
+        self.assertNotIn('non è un valore finito',answer)
+        self.assertIn('approssimato',answer)
+        self.assertIn('non è una prova di convergenza',answer)
+
+    def test_actual_infinite_result_is_still_reported(self):
+        self.assertIn('non è un valore finito',perform('exp(x)','integral',lower='0',upper='oo'))
+
     def test_model_protocol_accepts_calculus_and_checks_options(self):
         call=decode_call('[{"name":"calculate","arguments":{"expression":"x^2","operation":"integral","lower":"0","upper":"1"}}]')
         self.assertEqual(call['operation'],'integral')

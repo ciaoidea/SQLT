@@ -391,7 +391,9 @@ checked by substitution. Two-sided finite-point limits compare both sides.
 Unevaluated integrals and non-finite results are explicitly identified. SymPy
 cannot provide explicit solutions for every problem; worker timeouts (10 seconds
 for calculus, 5 for arithmetic) return an error rather than hanging chat.
-No numeric quadrature fallback or universal convergence proof is implemented.
+If a definite integral stays unevaluated, numerical quadrature is attempted at
+30 and 45 digits. A stable estimate is labelled approximate; agreement is not a
+universal convergence proof. Infinite bounds alone do not imply an infinite result.
 Model tool selection and final explanation still need independent evaluation.
 
 Invalid tool argument choices are returned to the model for one correction

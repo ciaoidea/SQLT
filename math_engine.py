@@ -138,6 +138,35 @@ def validate_request(expression,operation='evaluate',**options):
         raise ValueError('Limit direction must be +, - or +-')
 
 
+def numerical_integral(value,variable,lower,upper):
+    """Precision comparison is a numerical check, not a convergence proof."""
+    import sympy as sp
+    import mpmath as mp
+    if value.free_symbols-{variable} or lower.free_symbols or upper.free_symbols:
+        return None
+    function=sp.lambdify(variable,value,modules='mpmath')
+    def estimate(precision):
+        with mp.workdps(precision):
+            def endpoint(number):
+                if number==sp.oo:return mp.inf
+                if number==-sp.oo:return -mp.inf
+                return mp.mpf(str(sp.N(number,precision)))
+            lo,hi=endpoint(lower),endpoint(upper)
+            if mp.isinf(lo) and mp.isinf(hi):points=[lo,-1,0,1,hi]
+            elif mp.isinf(hi):points=[lo,lo+1,hi]
+            elif mp.isinf(lo):points=[lo,hi-1,hi]
+            else:points=[lo,(lo+hi)/2,hi]
+            return mp.quad(function,points)
+    try:
+        first,second=estimate(30),estimate(45)
+        with mp.workdps(45):
+            if not mp.isfinite(second) or abs(first-second)>mp.mpf('1e-20')*max(1,abs(second)):
+                return None
+            return mp.nstr(second,20)
+    except (ValueError,ZeroDivisionError,OverflowError,TypeError):
+        return None
+
+
 def perform(expression,operation='evaluate',**options):
     import sympy as sp
     validate_request(expression,operation,**options)
@@ -171,6 +200,12 @@ def perform(expression,operation='evaluate',**options):
         if 'lower' in options:
             result=sp.integrate(value,(variable,endpoint(options['lower']),endpoint(options['upper'])))
             title='Integrale definito'
+            if result.has(sp.Integral):
+                approximation=numerical_integral(value,variable,endpoint(options['lower']),endpoint(options['upper']))
+                if approximation is not None:
+                    return (f'**Valore numerico approssimato dell’integrale definito:** {approximation}.\n\n'
+                            'La forma simbolica è rimasta non risolta; ciò non significa che il valore sia infinito. '
+                            'Stabile confrontando 30 e 45 cifre di precisione; questo controllo non è una prova di convergenza.')
         else:
             result=sp.integrate(value,variable)
             title='Primitiva'
@@ -196,7 +231,7 @@ def perform(expression,operation='evaluate',**options):
         title='Serie (ordine del resto indicato da O)'
     if result.has(sp.Integral,sp.Derivative,sp.Limit):
         note+='\n\nIl risultato contiene operazioni simboliche non risolte; non è una soluzione esplicita.'
-    if result.has(sp.oo,-sp.oo,sp.zoo,sp.nan):
+    if result in (sp.oo,-sp.oo,sp.zoo,sp.nan):
         note+='\n\nIl risultato non è un valore finito; verificare convergenza e dominio.'
     return f'**{title}:** `{result}`'+note
 

@@ -24,6 +24,7 @@ SYSTEM_INSTRUCTIONS = ('Sei un assistente utile. Rispondi in italiano in modo co
     'For questions that do not require calculation, answer normally. '
     'Use exactly the operation enum names: an antiderivative or primitive uses integral, never primitive. '
     'For example, integrating sin(x) uses arguments {"expression":"sin(x)","operation":"integral","variable":"x"}. '
+    'An unevaluated Integral does not mean infinite or divergent. Keep numerical approximations labelled approximate; do not invent exact results. '
     'After a successful tool_response explain its result faithfully. If the tool reports an argument error, correct the call once.')
 
 

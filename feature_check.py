@@ -18,6 +18,7 @@ def check():
         'arithmetic':'x = -6' in perform('x^2+5x-6=0'),
         'derivative':'3*x**2' in perform('x^3','derivative'),
         'integral':'exp(x**2)/2' in perform('x*exp(x^2)','integral'),
+        'numeric_integral_fallback':'6.493939402266829' in perform('x^3/(exp(x)-1)','integral',lower='0',upper='oo'),
         'limit':'`1`' in perform('sin(x)/x','limit',point='0'),
         'series':'O(x**5)' in perform('sin(x)','series',order=5),
         'ode':'confermata' in perform('diff(y(x),x,2)+y(x)=0','ode'),
