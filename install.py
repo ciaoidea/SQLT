@@ -154,6 +154,16 @@ def stage(python, label, script, args=(), input_text=None, offline=False):
         command([str(python), str(ROOT / script), *args], stdout=handle,
             stderr=subprocess.STDOUT, input=input_text, text=True, env=env)
 
+def database_available(python):
+    """Probe configured DB access without creating tables or importing weights."""
+    try:
+        result = subprocess.run(
+            [str(python), '-c', 'from database import connect; c=connect(); c.close()'],
+            cwd=ROOT, capture_output=True, timeout=15)
+        return result.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
 def database_stage():
     from database import connect
     # No torch/transformers imports are needed for the schema-only installation.
@@ -238,10 +248,16 @@ def main():
             # still provides the command and its installation instructions.
             install_launcher()
         if not a.existing_db:
-            compose=compose_command()+['--project-name','sqlt','--env-file',str(ROOT/'.env'),'-f',str(ROOT/'compose.yaml')]
-            command(['docker','info'],stdout=subprocess.DEVNULL)
-            command(compose+['up','-d','db'])
-            if a.phpmyadmin:command(compose+['--profile','tools','up','-d','phpmyadmin'])
+            compose = None
+            if database_available(python):
+                print('Using the configured MariaDB server already running; schema and model checks follow.', flush=True)
+            else:
+                compose=compose_command()+['--project-name','sqlt','--env-file',str(ROOT/'.env'),'-f',str(ROOT/'compose.yaml')]
+                command(['docker','info'],stdout=subprocess.DEVNULL)
+                command(compose+['up','-d','db'])
+            if a.phpmyadmin:
+                compose=compose or compose_command()+['--project-name','sqlt','--env-file',str(ROOT/'.env'),'-f',str(ROOT/'compose.yaml')]
+                command(compose+['--profile','tools','up','-d','phpmyadmin'])
         db_result=subprocess.run([str(python),str(ROOT/'install.py'),'--db-worker'],cwd=ROOT,text=True,capture_output=True,check=True)
         status=json.loads(db_result.stdout)
         print('MariaDB native VECTOR and all SQLT tables are ready.',flush=True)

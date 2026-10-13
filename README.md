@@ -81,6 +81,11 @@ source coefficients is rejected. A checkpoint checksum failure discards the
 invalid partial shard so the next run can download it again. No automatic
 destructive database reset is performed.
 
+If the configured MariaDB server is already reachable, the installer reuses it
+and still validates native vector support, the schema and model identity.
+Rerunning installation in this case does not require access to the Docker socket.
+Starting a stopped database or the optional phpMyAdmin service still requires Docker.
+
 If you copied `.env.example` to `.env`, replace its placeholder passwords before
 installation. Otherwise the installer generates them. Do not change Docker
 initialization credentials after the persistent volume has been initialized;

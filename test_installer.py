@@ -101,6 +101,25 @@ class InstallerTests(unittest.TestCase):
         self.assertLess(events.index('launcher'), events.index('download-progress'))
         self.assertEqual(events.count('launcher'), 1)
 
+    def test_reinstall_reuses_running_database_without_docker_access(self):
+        with tempfile.TemporaryDirectory() as folder, \
+                patch('install.ROOT', Path(folder)), \
+                patch('install.configure'), \
+                patch('install.shutil.disk_usage', return_value=SimpleNamespace(free=40*1024**3)), \
+                patch('install.environment', return_value=(Path(sys.executable), {})), \
+                patch('install.stage'), patch('install.install_launcher'), \
+                patch('install.database_available', return_value=True), \
+                patch('install.compose_command') as compose, \
+                patch('install.command') as command, \
+                patch('install.subprocess.run', return_value=subprocess.CompletedProcess(
+                    [], 0, '{"server": {}, "model": {"status": "ready"}}')) as worker, \
+                patch.object(sys, 'argv', ['install.py']), \
+                contextlib.redirect_stdout(io.StringIO()):
+            install.main()
+        compose.assert_not_called()
+        command.assert_not_called()
+        self.assertIn('--db-worker', worker.call_args.args[0])
+
     def test_check_never_invokes_package_installation(self):
         with patch("install.nvidia_devices", return_value=[]), \
                 patch("install.probe_torch", return_value={"version": "tested"}), \
