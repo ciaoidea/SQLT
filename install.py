@@ -19,7 +19,39 @@ REVISION = 'a02780686e08a03fe0d2679a293b5c74a90efa89'
 def command(args, **kwargs):
     return subprocess.run(args, check=True, cwd=ROOT, **kwargs)
 
+def configure_launcher_path(directory, home=None, shell=None):
+    """Make the user launcher available to future login and terminal shells."""
+    home = Path.home() if home is None else Path(home)
+    shell = Path(shell or os.environ.get('SHELL', '/bin/bash')).name
+    marker = '# >>> SQLT command PATH >>>'
+    quoted = shlex.quote(str(directory))
+    block = (marker + '\ncase ":$PATH:" in\n'
+             f'    *:{quoted}:*) ;;\n'
+             f'    *) export PATH={quoted}:"$PATH" ;;\n'
+             'esac\n# <<< SQLT command PATH <<<\n')
+    profiles = [home / '.profile', home / '.bashrc']
+    for name in ('.bash_profile', '.bash_login'):
+        if (home / name).exists():
+            profiles.append(home / name)
+            break
+    if shell == 'zsh':
+        profiles.extend((home / '.zprofile', home / '.zshrc'))
+    if shell == 'fish':
+        profiles.append(home / '.config/fish/config.fish')
+    for profile in profiles:
+        text = profile.read_text() if profile.exists() else ''
+        if marker in text:
+            continue
+        addition = block
+        if profile.suffix == '.fish':
+            addition = (marker + '\nfish_add_path -- ' + quoted +
+                        '\n# <<< SQLT command PATH <<<\n')
+        profile.parent.mkdir(parents=True, exist_ok=True)
+        with profile.open('a') as handle:
+            handle.write(('\n' if text and not text.endswith('\n') else '') + addition)
+
 def install_launcher(directory=None):
+    configure_path = directory is None and os.geteuid() != 0
     directory=Path(directory) if directory is not None else (Path('/usr/local/bin') if os.geteuid()==0 else Path.home()/'.local/bin')
     directory.mkdir(parents=True,exist_ok=True)
     target=directory/'sqlt'
@@ -29,8 +61,15 @@ def install_launcher(directory=None):
             raise RuntimeError(f'Refusing to overwrite an unrelated command: {target}')
     target.write_text('#!/bin/sh\n'+marker+'\nexec '+shlex.quote(str(ROOT/'sqlt'))+' "$@"\n')
     target.chmod(0o755)
+    if configure_path:
+        configure_launcher_path(directory)
+    print(f'SQLT command installed: {target}', flush=True)
     if str(directory) not in os.environ.get('PATH','').split(os.pathsep):
-        print(f'Add {directory} to PATH to run sqlt from any directory.',flush=True)
+        print('Open a new terminal to use sqlt. In this terminal, run:', flush=True)
+        if Path(os.environ.get('SHELL', '/bin/bash')).name == 'fish':
+            print('  fish_add_path -- ' + shlex.quote(str(directory)), flush=True)
+        else:
+            print('  export PATH=' + shlex.quote(str(directory)) + ':"$PATH"', flush=True)
     return target
 
 def compose_command():
@@ -102,6 +141,7 @@ def environment(full, device='auto'):
         command([str(python), '-m', 'pip', 'install', '-r', str(ROOT / 'requirements.txt')])
     else:
         command([str(python), '-m', 'pip', 'install', 'PyMySQL>=1.1,<2', 'numpy>=1.26,<3'])
+    command([str(python), '-m', 'pip', 'check'])
     return python, torch_report
 
 def stage(python, label, script, args=(), input_text=None, offline=False):
@@ -192,6 +232,11 @@ def main():
                 raise RuntimeError('At least 35 GiB free space is required for a fresh model installation; 40+ GiB recommended')
         configure(a.existing_db)
         python, torch_report=environment(not a.database_only, a.device)
+        if not a.database_only:
+            stage(python,'features-smoke','feature_check.py',offline=True)
+            # Register before downloads/imports, so an interrupted installation
+            # still provides the command and its installation instructions.
+            install_launcher()
         if not a.existing_db:
             compose=compose_command()+['--project-name','sqlt','--env-file',str(ROOT/'.env'),'-f',str(ROOT/'compose.yaml')]
             command(['docker','info'],stdout=subprocess.DEVNULL)
@@ -211,7 +256,6 @@ def main():
                 raise RuntimeError('Unsupported model status: '+str(model['status']))
             for phase in ('weights','reference','compare'):
                 stage(python,phase+'-verification-progress','verify.py',(phase,'.conversion'),offline=True)
-        stage(python,'features-smoke','feature_check.py',offline=True)
         stage(python,'offline-chat-smoke','runtime.py',('--device',a.device,'--cache-mib','3584','--int8','chat'),input_text='/quit\n',offline=True)
         if a.benchmark:stage(python,'benchmark-progress','benchmark.py',offline=True)
         if not a.keep_source:
@@ -222,7 +266,6 @@ def main():
             source_checkpoints_kept=a.keep_source,offline_chat_smoke=True,
             features_smoke=True,capabilities=['file_learning_one_pass','model_selected_math','calculus','terminal_markdown','input_history_and_paste','escape_pause'],
             pytorch=torch_report)
-        install_launcher()
         (ROOT/'installation-report.json').write_text(json.dumps(report,indent=2)+'\n')
         print('SQLT installation complete. Start the terminal chat with sqlt',flush=True)
 

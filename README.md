@@ -52,6 +52,11 @@ Installation performs these stages:
    inference steps and tokenizer behavior against the source architecture.
 8. Tests offline chat startup, then removes conversion checkpoints by default.
 
+Before downloading the model, the installer checks Python dependency compatibility,
+runs the offline feature checks and registers the `sqlt` command. An interrupted
+model installation therefore still provides `sqlt` with instructions to finish
+installation.
+
 The installer detects NVIDIA GPU capability and driver version, selects an
 official CUDA 12.8 or 12.6 PyTorch build when supported, and runs a small real
 GPU computation. An existing working CUDA build is preserved. If CUDA cannot
@@ -426,8 +431,11 @@ or checking the full inference/training environment.
 ### Launch from any directory
 
 Run `sqlt` to open the terminal chat. The installer registers a command wrapper
-in `/usr/local/bin` for root or `~/.local/bin` for a regular user (that directory
-must be on PATH). `./sqlt` also works inside the project folder. Runtime options
+in `/usr/local/bin` for root or `~/.local/bin` for a regular user. The installer
+adds the user command directory to shell startup files automatically. If your
+current terminal does not already include that directory on `PATH`, open a new
+terminal or run the command printed by the installer. `./sqlt` also works inside
+the project folder. Runtime options
 are forwarded, for example `sqlt --device cpu`. The old `chat` launcher is renamed.
 
 A short output prefix is held before streaming prose; recognized internal
