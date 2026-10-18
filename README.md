@@ -38,10 +38,16 @@ without modifying the global client configuration. Client registration is
 optional; do not replace an existing operational server registration when testing
 this independent copy.
 
-## Boundaries
+## How memory works
 
-The encoder is frozen and does not learn from stored experiences. The learned
-outcome readout has eight coefficients and chooses among supplied participants;
-it is not a general reasoning engine or a self-organizing memory topology.
-Structured representations preserve functional roles, explicit negation, source
-and context. Similarity alone is not proof of a fact.
+CORTEX acquires new information as soon as it is stored. Facts and their original
+evidence become available to exact queries and semantic search, including in new
+conversations. Each memory retains its roles, explicit negation and context.
+This is immediate learning through persistent memory: no separate training cycle
+is needed to make a new fact available.
+
+When explicitly observed outcomes are supplied to the learning function, CORTEX
+also updates its numerical prediction operators online. Storing a fact and
+training an operator are distinct operations. The language model and semantic
+encoder keep their existing weights; new knowledge persists in the database,
+and learned operator coefficients are stored there as well.
