@@ -1,58 +1,97 @@
-# CORTEX — persistent memory and tensor operations
+# SQL Tensor
 
-A standalone distribution of a model-independent memory engine. Language models
-interpret requests and generate answers through MCP; local code persists evidence,
-retrieves events and learns small numerical outcome operators.
+**A SQL and vector memory framework for AI agents.**
 
-- MariaDB 11.8+ stores structured events, source evidence and native vectors.
-- A frozen multilingual FastEmbed/ONNX encoder supports semantic retrieval.
-- Parameterized SQL supports exact filters and complete paginated results.
-- NumPy implements role-bound tensors and supervised outcome operators.
-- Predictions are hypotheses; they are not automatically stored as observations.
+SQL Tensor gives agents persistent memory they can query. Information is stored
+as structured events and semantic vectors, so an agent can retrieve relevant
+facts without repeatedly reading large Markdown memory files. The aim is to
+reduce unnecessary context and token usage; a comparative token benchmark has
+not yet been published.
 
-## Installation
+**CORTEX is the current implementation of SQL Tensor.** It provides the memory
+engine, numerical learning operators and an MCP server. A terminal client is
+included, but other compatible agents can use the same MCP interface.
+
+## What it does
+
+- **Remember:** save new information with its original source, participant roles,
+  explicit negation and context. It remains available across conversations.
+- **Find exact information:** use SQL filters for names, codes, fields, counts
+  and complete paginated lists.
+- **Find related information:** use vector search when the question and the
+  stored information use different wording.
+- **Learn from outcomes:** update small numerical prediction operators when an
+  observed outcome is explicitly supplied. Predictions remain separate from facts.
+
+For example, an agent can store “Luca is the contact for project Aurora” and,
+from a new conversation, retrieve it when asked “Who should I contact about
+Aurora?” The source remains available for checking the answer.
+
+## How it works
+
+```text
+AI agent / language model
+          |
+         MCP
+          |
+        CORTEX
+          +-- SQL queries and semantic retrieval
+          +-- Tensor operations and outcome learning
+          |
+        MariaDB
+          +-- Events, sources, roles and context
+          +-- Semantic vectors and learned operators
+```
+
+The language model interprets requests and writes answers. CORTEX manages the
+memory. MariaDB stores it, a local ONNX encoder converts text into semantic
+vectors, and NumPy performs tensor operations.
+
+CORTEX is biologically inspired: it combines immediate experience storage,
+associative retrieval and learning from observed outcomes. This describes the
+organization of its functions, rather than a simulation of biological neurons.
+
+New information becomes retrievable as soon as storage completes. No separate
+training cycle is needed. Storing a fact updates the memory; explicitly teaching
+an outcome can also update an operator's coefficients. Neither operation
+retrains the language model or the semantic encoder.
+
+## Quick start
+
+Requires Linux, Python 3.11+, Docker and internet access for the initial setup.
 
 ```sh
-tar -xzf cortex-installer.tar.gz
+git clone https://github.com/ciaoidea/SQLT.git CORTEX
 cd CORTEX
 ./install.sh --client none --no-link
 ```
 
-The installer creates a private Python environment, generates fresh database
-credentials and provisions an isolated MariaDB container. This distribution
-requires the database name **CORTEX**, including capitalization. It refuses the
-operational lowercase `cortex` database. No user memories or credentials are
-included in the source package.
+The installer creates a Python environment and a dedicated MariaDB 11.8 container
+with an empty `CORTEX` database, fresh credentials and a local-only port (`13307`
+by default). It prepares the encoder and checks the MCP connection. This command
+does not change global client registrations or create a global launcher.
 
-See [INSTALL.md](INSTALL.md) for setup and [EXPERIMENTS.md](EXPERIMENTS.md) for the
-previous controlled experiment and its limits. The source tree contains no
-operational transcripts, database dumps, model weights or legacy SQLT adapter.
+To connect an MCP client, use the command and arguments in the generated
+`mcp.config.json`. For the included Codex terminal client:
 
-## Use
+```sh
+./cortex
+```
 
-`./cortex mcp` starts the MCP server. `./cortex` starts the terminal client and
-requires a separately authenticated Codex client. Other compatible MCP clients
-can use the server without that terminal interface. The built-in Codex launchers
-override the Cortex MCP command for their process to use this installation,
-without modifying the global client configuration. Client registration is
-optional; do not replace an existing operational server registration when testing
-this independent copy.
+The terminal client requires Codex to be installed and authenticated separately.
+It can execute commands with your user's permissions. The memory server itself
+can be used independently by other MCP clients.
 
-## How memory works
+A [source installer archive](downloads/cortex-installer.tar.gz) and its
+[SHA-256 checksum](downloads/cortex-installer.tar.gz.sha256) are also available.
+See [INSTALL.md](INSTALL.md) for setup options and client registration.
 
-CORTEX is biologically inspired: it combines immediate experience storage,
-associative retrieval and online learning from observed outcomes. This inspiration
-concerns the organization of memory and learning functions; the implementation
-uses a database, vectors and numerical operators.
+## Code and evidence
 
-CORTEX acquires new information as soon as it is stored. Facts and their original
-evidence become available to exact queries and semantic search, including in new
-conversations. Each memory retains its roles, explicit negation and context.
-This is immediate learning through persistent memory: no separate training cycle
-is needed to make a new fact available.
+This distribution contains source code, synthetic tests and documentation. It
+ships without user memories, database dumps, account credentials or model weights.
 
-When explicitly observed outcomes are supplied to the learning function, CORTEX
-also updates its numerical prediction operators online. Storing a fact and
-training an operator are distinct operations. The language model and semantic
-encoder keep their existing weights; new knowledge persists in the database,
-and learned operator coefficients are stored there as well.
+[EXPERIMENTS.md](EXPERIMENTS.md) documents the previously recorded controlled
+operator experiment, including its baselines and limits. It demonstrates a
+specific numerical learning task, not general reasoning or a self-organizing
+memory topology.
