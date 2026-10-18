@@ -40,6 +40,11 @@ this independent copy.
 
 ## How memory works
 
+CORTEX is biologically inspired: it combines immediate experience storage,
+associative retrieval and online learning from observed outcomes. This inspiration
+concerns the organization of memory and learning functions; the implementation
+uses a database, vectors and numerical operators.
+
 CORTEX acquires new information as soon as it is stored. Facts and their original
 evidence become available to exact queries and semantic search, including in new
 conversations. Each memory retains its roles, explicit negation and context.
