@@ -2,23 +2,66 @@
 from .local_mcp import local_mcp_args
 import atexit
 import json
+import hashlib
+import os
+from pathlib import Path
 import queue
 import subprocess
 import threading
 import time
+import tempfile
 
 
 class PersistentCodex:
-    def __init__(self, root, *, model='gpt-6.1-sol', instructions=None, agent=False):
+    def __init__(self, root, *, model='gpt-6.1-sol', instructions=None, agent=False, session_dir=None):
         self.root = root
         self.model = model
         self.instructions = instructions
         self.agent = agent
+        self.session_dir = Path(session_dir) if session_dir is not None else None
         self.process = None
         self.messages = queue.Queue()
         self.sequence = 0
         self.thread_id = None
         atexit.register(self.close)
+
+    def _session_path(self):
+        if self.session_dir is None:
+            return None
+        identity = str(Path(self.root).resolve()) + '\0' + self.model
+        return self.session_dir / (hashlib.sha256(identity.encode()).hexdigest() + '.json')
+
+    def new_conversation(self):
+        self.close()
+        path = self._session_path()
+        if path is not None:
+            path.unlink(missing_ok=True)
+
+    def _saved_thread(self):
+        path = self._session_path()
+        if path is None or not path.exists():
+            return None
+        data = json.loads(path.read_text())
+        if (data.get('cwd') != str(Path(self.root).resolve()) or data.get('model') != self.model
+                or not isinstance(data.get('thread_id'), str) or not data['thread_id']):
+            raise RuntimeError('Invalid saved session reference. Use /new to start a new conversation.')
+        return data['thread_id']
+
+    def _save_thread(self, thread_id):
+        path = self._session_path()
+        if path is None:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        descriptor, temporary = tempfile.mkstemp(prefix='.session-', dir=path.parent)
+        try:
+            with os.fdopen(descriptor, 'w') as output:
+                json.dump({'thread_id': thread_id, 'cwd': str(Path(self.root).resolve()),
+                           'model': self.model}, output)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
 
     def close(self):
         process, self.process = self.process, None
@@ -98,18 +141,26 @@ class PersistentCodex:
             thread_id = None if fresh else self.thread_id
             new_thread = thread_id is None
             if new_thread:
+                saved_thread = None if fresh else self._saved_thread()
                 settings = {
                     'model': self.model, 'cwd': str(self.root),
-                    'ephemeral': True, 'approvalPolicy': 'never',
+                    'approvalPolicy': 'never',
                     'config': {'model_reasoning_effort': 'low'}}
                 if self.instructions is not None:
                     settings['developerInstructions'] = self.instructions
                 if self.agent:
                     settings['sandbox'] = 'danger-full-access'
-                result = self._request('thread/start', settings, deadline)
+                if saved_thread:
+                    settings['threadId'] = saved_thread
+                    result = self._request('thread/resume', settings, deadline)
+                    new_thread = False
+                else:
+                    settings['ephemeral'] = fresh or self.session_dir is None
+                    result = self._request('thread/start', settings, deadline)
                 thread_id = result['thread']['id']
                 if not fresh:
                     self.thread_id = thread_id
+                    self._save_thread(thread_id)
             ready = time.perf_counter() - started
             result = self._request('turn/start', {
                 'threadId': thread_id, 'input': [{'type': 'text', 'text': prompt}],

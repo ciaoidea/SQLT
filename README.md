@@ -95,3 +95,14 @@ ships without user memories, database dumps, account credentials or model weight
 operator experiment, including its baselines and limits. It demonstrates a
 specific numerical learning task, not general reasoning or a self-organizing
 memory topology.
+
+## Persistent terminal sessions
+
+The terminal agent saves native Codex conversations and automatically resumes its
+last thread for the same OS user, namespace, model and working directory. Cortex
+keeps only a private session-ID reference in `~/.local/state/cortex/sessions/`.
+`/new` starts a fresh conversation without deleting MariaDB memory or old native
+logs. Explicit `/verify` memory checks remain ephemeral and isolated. Resume
+failures are reported, never silently replaced with a new thread. Existing open
+clients need a normal restart; earlier ephemeral conversations are not recoverable.
+The local MCP configuration of this installation is preserved.

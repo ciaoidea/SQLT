@@ -185,7 +185,9 @@ def main():
     cwd = a.cwd.expanduser().resolve(strict=True)
     if not cwd.is_dir():
         p.error('cwd must be a directory')
-    client = PersistentCodex(cwd, model=a.model, instructions=instructions(a.namespace), agent=True)
+    session_dir = Path.home() / '.local/state/cortex/sessions' / a.namespace
+    client = PersistentCodex(cwd, model=a.model, instructions=instructions(a.namespace), agent=True,
+                             session_dir=session_dir)
     terminal = TerminalInput() if a.ask is None else None
     last = None
     try:
@@ -205,7 +207,7 @@ def main():
             if text == '/pwd': print(cwd); continue
             if text == '/why': print(json.dumps(last, ensure_ascii=False, indent=2)); continue
             if text == '/new':
-                client.close(); print('Nuova conversazione. Memoria conservata.'); continue
+                client.new_conversation(); print('Nuova conversazione. Memoria conservata.'); continue
             try:
                 forced_chat = text.startswith('/chat ')
                 if forced_chat:
@@ -244,7 +246,7 @@ def main():
                     view.boundary()
             except KeyboardInterrupt:
                 client.close()
-                print('\nInterrotto. Le operazioni già completate restano valide; conversazione riavviata.')
+                print('\nInterrotto. Le operazioni già completate restano valide; sessione conservata.')
             except Exception as exc:
                 print('Errore: ' + safe_text(exc), flush=True)
             if a.ask is not None: break
