@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="SQL Tensor: persistent memory, semantic retrieval and numerical prediction through MCP.">
+<meta name="description" content="SQL Tensor: SQL and vector memory for AI agents, implemented by CORTEX.">
 <title>SQL Tensor</title>
 <style>
 html { color-scheme: light; background: white; color: black; }
@@ -20,29 +20,41 @@ footer { font-size: .9em; }
 <body>
 <main>
 <h1>SQL Tensor</h1>
-<p>Persistent memory. Semantic retrieval. Numerical prediction.</p>
+<p>A SQL and vector memory framework for AI agents.</p>
 <hr>
-<p>SQL Tensor stores structured events, original evidence and vectors in MariaDB.
-An MCP-connected language model interprets requests and writes answers;
-local code stores, retrieves and processes the memory.</p>
-<p>Biologically inspired: immediate experience storage, associative retrieval
-and online learning from observed outcomes.</p>
+<p>Give an agent information once, then retrieve it across conversations.
+SQL Tensor stores structured facts and semantic vectors so the agent can query
+relevant evidence instead of repeatedly reading large Markdown memory files.</p>
+<p><strong>CORTEX is its current implementation.</strong> It provides persistent
+memory, semantic retrieval and online learning from observed outcomes through MCP.</p>
+<h2>A simple example</h2>
+<p>Store: “Luca is the contact for project Aurora.”<br>
+In a new conversation, ask: “Who should I contact about Aurora?”<br>
+The agent retrieves the stored fact and its original source.</p>
+<p>This illustrates the workflow; it is not a recorded benchmark result.</p>
 <h2>Structure</h2>
 <pre aria-label="System architecture">Language model
       |
      MCP
       |
-Memory and tensor operations (NumPy)
+CORTEX: memory and tensor operations
       |
    MariaDB
       +-- Events, roles and original evidence
       +-- Semantic vectors &lt;-- Local encoder (ONNX)
       +-- Learned operators and observed outcomes</pre>
 <h2>How it works</h2>
-<p>SQL filters retrieve exact matches. A frozen local encoder produces embeddings
-for semantic search. Small tensor operators learn from explicitly observed
-outcomes and return predictions. Retrieved evidence supports answers;
-predictions remain hypotheses.</p>
+<p>SQL queries handle exact filters, counts and lists. Vector search finds related
+information even when the wording changes. Original evidence, roles, negation
+and context are retained so retrieved information can be checked.</p>
+<p>CORTEX is biologically inspired: immediate experience storage, associative
+retrieval and learning from observed outcomes. Small numerical operators can
+learn predictions; these remain separate from stored facts.</p>
+<h2>What has been measured</h2>
+<p>A <a href="https://github.com/ciaoidea/SQLT/blob/main/EXPERIMENTS.md">controlled
+operator experiment</a> is documented with its results and limits. Reducing context
+and token usage is a design goal; a comparative token benchmark has not yet been
+published.</p>
 <hr>
 <footer><a href="https://github.com/ciaoidea/SQLT">Source</a> &middot;
 <a href="https://github.com/ciaoidea/SQLT/blob/main/INSTALL.md">Installation</a> &middot;
