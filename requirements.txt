@@ -1,0 +1,5 @@
+mcp>=1,<2
+numpy
+pymysql
+fastembed==0.8.1
+prompt-toolkit>=3.0.50,<4

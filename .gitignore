@@ -1,0 +1,18 @@
+.venv/
+.env.json
+__pycache__/
+.granite-reader.env
+.semantic-model/
+.run/
+.install/
+.tools/
+mcp.config.json
+dist/
+
+verification*.json
+*.log
+
+# Private connection settings and generated verification transcripts
+.env*
+*-events.json
+*-answer.txt

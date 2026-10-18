@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+ROOT=$(dirname "$(readlink -f "$0")")
+cd "$ROOT"
+export PATH="$HOME/.local/bin:$ROOT/.tools/clients/node_modules/.bin:$ROOT/.tools/node/bin:$PATH"
+case "${1:-}" in
+  install) shift; exec ./install.sh "$@" ;;
+  mcp) shift; exec .venv/bin/python mcp_server.py "$@" ;;
+  verify) shift; exec .venv/bin/python verify_mcp.py "$@" ;;
+  base|local) echo "Modalità SQLT legacy esclusa da questa installazione. Usa Cortex MCP." >&2; exit 2 ;;
+  codex) shift; exec .venv/bin/python -m clients.local_mcp -m gpt-6.1-sol -C "$ROOT" "$@" ;;
+  claude) shift; exec claude "$@" ;;
+  gemini) shift; exec gemini "$@" ;;
+  memory) shift; exec .venv/bin/python -m clients.codex_chat "$@" ;;
+  chat|shell) shift; exec .venv/bin/python -m clients.shell_chat "$@" ;;
+  demo) shift; exec .venv/bin/python -m clients.codex_chat --namespace demo --demo "$@" ;;
+  *) exec .venv/bin/python -m clients.shell_chat "$@" ;;
+esac
