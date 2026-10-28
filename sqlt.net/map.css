@@ -57,3 +57,5 @@ main{display:grid;grid-template-columns:218px minmax(0,1fr);height:calc(100dvh -
 
 .graph-dynamics{position:absolute;right:16px;top:14px;z-index:4;display:flex;gap:7px;align-items:center;padding:7px 10px;border:1px solid #25485d;border-radius:7px;background:rgba(3,10,22,.85);color:#cdefff;font:11px system-ui}
 body[data-view="table"] .graph-dynamics{display:none}.graph-dynamics input{accent-color:#6bdaff}
+
+.graph-dynamics span{display:inline-flex;gap:5px;align-items:center;white-space:nowrap}
