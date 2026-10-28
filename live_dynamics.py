@@ -281,3 +281,27 @@ class LiveCollector:
             self.closed=True
             self.clients.clear()
             self._stop_locked()
+
+
+from contextlib import contextmanager
+
+@contextmanager
+def trace_skill_execution(namespace='main', *, llm_bypassed=False):
+    """Instrument an actual executor; retrieval/skill discovery must not call this.
+
+    llm_bypassed means the execution path does not invoke the language model.
+    No skill names, arguments or results are sent to the visual channel.
+    """
+    active=watching(namespace)
+    base={'operation':'skill_bypass' if llm_bypassed else 'skill_execution',
+          'call':uuid.uuid4().hex[:16],'producer':os.getpid(),'origin':'client',
+          'records':[],'count':0,'duration_ms':0}
+    started=time.monotonic()
+    if active:emit(namespace,{**base,'phase':'start'})
+    try:
+        yield
+    except BaseException:
+        if active:emit(namespace,{**base,'phase':'error','duration_ms':(time.monotonic()-started)*1000})
+        raise
+    else:
+        if active:emit(namespace,{**base,'phase':'complete','duration_ms':(time.monotonic()-started)*1000})

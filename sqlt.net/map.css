@@ -59,3 +59,5 @@ main{display:grid;grid-template-columns:218px minmax(0,1fr);height:calc(100dvh -
 body[data-view="table"] .graph-dynamics{display:none}.graph-dynamics input{accent-color:#6bdaff}
 
 .graph-dynamics span{display:inline-flex;gap:5px;align-items:center;white-space:nowrap}
+
+#skill-state{position:absolute;right:16px;bottom:48px;z-index:4;max-width:290px;padding:10px 12px;border:1px solid #447d77;border-radius:7px;background:rgba(3,18,23,.9);color:#b6e7da;font:11px system-ui;pointer-events:none}#skill-state[hidden]{display:none}#skill-state strong,#skill-state span,#skill-state small{display:block}#skill-state span{margin:5px 0}#skill-state small{color:#829a9e}

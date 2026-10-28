@@ -6,6 +6,8 @@ window.CortexLive=(()=>{
  const bursts=[],history=[];
  let building=false,activeTurn=null;
  const candidateCache=new Map();
+ const activeSkills=new Set();
+ function clearSkills(){activeSkills.clear();$('skill-state').hidden=true;}
  let queryPackets=0,droppedQuery=0;
  let packets=0, overflow=0, rateDrops=0, lastPoll=0;
  const $=id=>document.getElementById(id);
@@ -23,6 +25,10 @@ window.CortexLive=(()=>{
   const now=performance.now();
   for(const event of events){
    if(event.origin==='viewer')continue;
+   if(event.operation==='skill_bypass'){
+    if(event.phase==='start')activeSkills.add(event.call);else activeSkills.delete(event.call);
+    $('skill-state').hidden=!activeSkills.size;
+   }
    for(const record of event.records||[]){candidateCache.set(record.id,record);if(candidateCache.size>192)candidateCache.delete(candidateCache.keys().next().value);}
   }
   const focus=events.filter(e=>e.operation==='memory_focus'&&e.request_id===activeTurn).at(-1);
@@ -66,6 +72,7 @@ window.CortexLive=(()=>{
   finally{abort=null;if(active()&&mine===epoch)timer=setTimeout(()=>poll(mine),1000);}
  }
  function stop(){
+  clearSkills();
   epoch++;clearTimeout(timer);timer=null;
   if(abort){abort.abort();abort=null;}
   fetch('api/live?'+new URLSearchParams({client,stop:'1'}),{cache:'no-store',keepalive:true}).catch(()=>{});
@@ -83,7 +90,7 @@ window.CortexLive=(()=>{
   if(!enabled)stop();
   reconcile();
  }
- function resetView(){activeTurn=null;candidateCache.clear();bursts.length=0;history.length=0;building=false;queryPackets=0;droppedQuery=0;$('live-events').replaceChildren();status('Graph ready · waiting for a new query or memory activity');}
+ function resetView(){clearSkills();activeTurn=null;candidateCache.clear();bursts.length=0;history.length=0;building=false;queryPackets=0;droppedQuery=0;$('live-events').replaceChildren();status('Graph ready · waiting for a new query or memory activity');}
  function beginQuery(){building=true;queryPackets=0;droppedQuery=0;bursts.length=0;history.length=0;$('live-events').replaceChildren();status('Live · query executing');}
  function endQuery(dropped=0){building=false;droppedQuery=dropped;status(dropped?`Query complete · ${dropped} visual notices skipped · final result preserved`:'Query complete · flares settle into the static result');}
  function pipeline(event){
@@ -100,7 +107,7 @@ window.CortexLive=(()=>{
   history.splice(8);$('live-events').replaceChildren(...history.map(line=>{const el=document.createElement('div');el.textContent=line;return el;}));
  }
  function hash(value){let h=2166136261;for(const ch of value){h^=ch.charCodeAt(0);h=Math.imul(h,16777619);}return h>>>0;}
- function render(ctx,points,w,h){
+ function render(ctx,points,w,h,routes=new Map()){
   if(!active())return;
   const now=performance.now();trim(now);
   const byId=new Map(points.map(p=>[p.n.id,p]));
@@ -117,14 +124,16 @@ window.CortexLive=(()=>{
      const key=join.source+'\0'+join.target;if(seenJoins.has(key)||seenJoins.size>=160)continue;seenJoins.add(key);
      const a=byId.get(join.source),b=byId.get(join.target);if(!a||!b)continue;
      // Motion is constrained to an actual executed edge, in its stored direction.
-     const t=Math.min(1,age/1.1),bend=points.some(p=>p.n.kind==='group')?.035:.12;
-     const dx=b.x-a.x,dy=b.y-a.y,cx=(a.x+b.x)/2-dy*bend,cy=(a.y+b.y)/2+dx*bend;
+     const route=routes.get(key)||[a,b];
+     const lengths=[0];for(let i=1;i<route.length;i++)lengths.push(lengths[i-1]+Math.hypot(route[i].x-route[i-1].x,route[i].y-route[i-1].y));
+     const total=lengths.at(-1)||1;
+     const at=q=>{const distance=Math.max(0,Math.min(1,q))*total;let i=1;while(i<lengths.length-1&&lengths[i]<distance)i++;const f=(distance-lengths[i-1])/(lengths[i]-lengths[i-1]||1);return {x:route[i-1].x+(route[i].x-route[i-1].x)*f,y:route[i-1].y+(route[i].y-route[i-1].y)*f};};
      ctx.strokeStyle=`rgba(${rgb},${fade*.6})`;ctx.lineWidth=2;
-     ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(cx,cy,b.x,b.y);ctx.stroke();
+     ctx.beginPath();route.forEach((p,i)=>{if(i)ctx.lineTo(p.x,p.y);else ctx.moveTo(p.x,p.y);});ctx.stroke();
      if(age<1.1){
-      const at=q=>{const u=1-q;return {x:u*u*a.x+2*u*q*cx+q*q*b.x,y:u*u*a.y+2*u*q*cy+q*q*b.y};};
-      for(let j=7;j>=0;j--){const p0=at(Math.max(0,t-(j+1)*.025)),p1=at(Math.max(0,t-j*.025));ctx.strokeStyle=`rgba(${rgb},${fade*(1-j/8)*.9})`;ctx.lineWidth=1+2*(1-j/8);ctx.beginPath();ctx.moveTo(p0.x,p0.y);ctx.lineTo(p1.x,p1.y);ctx.stroke();}
-      const u=1-t;ctx.fillStyle=`rgb(${rgb})`;ctx.shadowColor=`rgb(${rgb})`;ctx.shadowBlur=12;ctx.beginPath();ctx.arc(u*u*a.x+2*u*t*cx+t*t*b.x,u*u*a.y+2*u*t*cy+t*t*b.y,3,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;}
+      const t=Math.min(1,age/1.1);
+      for(let j=7;j>=0;j--){const p0=at(t-(j+1)*.025),p1=at(t-j*.025);ctx.strokeStyle=`rgba(${rgb},${fade*(1-j/8)*.9})`;ctx.lineWidth=1+2*(1-j/8);ctx.beginPath();ctx.moveTo(p0.x,p0.y);ctx.lineTo(p1.x,p1.y);ctx.stroke();}
+      const tip=at(t);ctx.fillStyle=`rgb(${rgb})`;ctx.shadowColor=`rgb(${rgb})`;ctx.shadowBlur=12;ctx.beginPath();ctx.arc(tip.x,tip.y,3,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;}
     }
     for(const id of event.nodes){
      if(seenNodes.has(id)||seenNodes.size>=120)continue;seenNodes.add(id);

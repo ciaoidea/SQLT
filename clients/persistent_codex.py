@@ -242,6 +242,8 @@ class PersistentCodex:
                 'effort': 'low'}, deadline)
             turn_id = result['turn']['id']
             first_tool = None
+            focus_repair = False
+            focus_seen = False
             while True:
                 message = self._read(deadline)
                 params = message.get('params', {})
@@ -262,11 +264,34 @@ class PersistentCodex:
                                     'commandExecution': 'command_execution'}.get(item['type'], item['type'])
                     if item.get('result'):
                         item['result']['structured_content'] = item['result'].get('structuredContent')
-                    events.append({'type': 'item.completed', 'item': item})
-                    if on_item:on_item(item)
+                    # Tool calls can be native MCP or nested in the JS exec tool.
+                    serialized=json.dumps(item,ensure_ascii=False)
+                    if 'focus_memory' in serialized and visual_turn and visual_turn in serialized:
+                        focus_seen=True
+                    if not focus_repair:
+                        events.append({'type': 'item.completed', 'item': item})
+                        if on_item:on_item(item)
                 if method == 'turn/completed' and params['turn']['id'] == turn_id:
                     if params['turn']['status'] != 'completed':
                         raise RuntimeError(str(params['turn'].get('error') or params['turn']['status']))
+                    if visual_turn and not focus_seen and not focus_repair:
+                        # One bounded repair in the same context, without re-running
+                        # retrieval or repeating the user's operational action.
+                        from live_dynamics import watching
+                        if watching(self.namespace):
+                            focus_repair=True
+                            repair=self._request('turn/start', {
+                                'threadId':thread_id,
+                                'input':[{'type':'text','text':
+                                    'Visualization completion only. The user task is already finished. '
+                                    'Do not repeat it, create another draft, send messages, modify memory, '
+                                    'or call any operational tool. Call cortex.focus_memory exactly once '
+                                    'with request_id '+visual_turn+' and namespace '+self.namespace+'. '
+                                    'Select only retrieved event IDs actually supporting the answer you just gave; '
+                                    'use [] if none. Discover the focus tool if necessary. '
+                                    'Do not produce another user-facing answer.'}], 'effort':'low'},deadline)
+                            turn_id=repair['turn']['id']
+                            continue
                     break
             timing = {'client_ready_seconds': ready, 'first_tool_seconds': first_tool,
                       'mcp_seconds': sum(e['item'].get('durationMs') or 0 for e in events
