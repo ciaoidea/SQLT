@@ -46,7 +46,7 @@ def where(namespace,frame,filters,negated):
 
 
 def query(memory,filters,frame=None,negated=False,limit=100,offset=0,count_only=False,
-          select_roles=None,include_source=True):
+          select_roles=None,include_source=True,include_sql=False):
     """AND filters; total counts all matches, never just a nearest-neighbor subset."""
     if type(limit) is not int or not 1<=limit<=100:raise ValueError('Page size must be 1..100')
     if type(offset) is not int or not 0<=offset<=10000:raise ValueError('Offset must be 0..10000')
@@ -54,16 +54,19 @@ def query(memory,filters,frame=None,negated=False,limit=100,offset=0,count_only=
     if select_roles is not None:
         if not isinstance(select_roles,list) or not 1<=len(select_roles)<=12:raise ValueError('Select 1..12 roles')
         select_roles={canonical(role) for role in select_roles}
-    started=time.perf_counter();memory.c.commit()
+    started=time.perf_counter();memory.c.commit();trace=[]
     try:
         with memory.c.cursor() as cursor:
             cursor.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ')
             cursor.execute('START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY')
-            cursor.execute('SELECT COUNT(*) FROM episodic_events e WHERE '+clause,params)
+            count_sql='SELECT COUNT(*) FROM episodic_events e WHERE '+clause
+            cursor.execute(count_sql,params)
+            if include_sql:trace.append(dict(sql=count_sql,parameters=list(params)))
             total=cursor.fetchone()[0];events=[]
             if not count_only:
-                cursor.execute('SELECT e.id,e.frame,e.negated,e.roles,e.source,e.event_time,e.place '
-                    'FROM episodic_events e WHERE '+clause+' ORDER BY e.id LIMIT %s OFFSET %s',params+[limit,offset])
+                rows_sql='SELECT e.id,e.frame,e.negated,e.roles,e.source,e.event_time,e.place FROM episodic_events e WHERE '+clause+' ORDER BY e.id LIMIT %s OFFSET %s'
+                cursor.execute(rows_sql,params+[limit,offset])
+                if include_sql:trace.append(dict(sql=rows_sql,parameters=params+[limit,offset]))
                 events=[dict(event_id=r[0],frame=r[1],negated=bool(r[2]),roles=json.loads(r[3]),
                              source=r[4],time=r[5],place=r[6]) for r in cursor.fetchall()]
                 for event in events:
@@ -73,9 +76,11 @@ def query(memory,filters,frame=None,negated=False,limit=100,offset=0,count_only=
     except BaseException:
         memory.c.rollback();raise
     more=not count_only and offset+len(events)<total
-    return dict(events=events,count=len(events),total=total,offset=offset,limit=limit,
+    result=dict(events=events,count=len(events),total=total,offset=offset,limit=limit,
                 has_more=more,next_offset=offset+len(events) if more else None,
                 complete=not count_only and offset==0 and not more,count_only=count_only,
                 sql_seconds=time.perf_counter()-started,search='relational_sql',
                 scope='Exact AND filters over active user statements, not independently verified facts. '
                       'Total covers all matches. Follow next_offset for remaining pages; concurrent changes can affect later pages.')
+    if include_sql:result['sql_trace']=trace
+    return result

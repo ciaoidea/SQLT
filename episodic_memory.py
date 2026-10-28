@@ -136,20 +136,16 @@ class EpisodicMemory:
             source=event.get('source');negated=event.get('negated',False)
             event_time=event.get('event_time','');place=event.get('place','')
             if not isinstance(negated,bool):raise ValueError('Negation must be boolean')
-            if not isinstance(source,str) or not 1<=len(source)<=8192:raise ValueError('Invalid source text')
+            if not isinstance(source,str) or not source.strip() or len(source.encode('utf-8'))>60000:raise ValueError('Source must contain text and fit in 60000 UTF-8 bytes; split larger documents into sourced events')
             if not isinstance(event_time,str) or not isinstance(place,str) or max(len(event_time),len(place))>160:
                 raise ValueError('Context too long')
             normalized.append(dict(frame=frame,roles=roles,source=source,negated=negated,event_time=event_time,place=place))
-        if sum(len(e['source']) for e in normalized)>64000:
-            raise ValueError('Batch source budget exceeded (64000 characters)')
         encoding_started=time.perf_counter()
         encoded=semantic_memory.embed_passages([e['source'] for e in normalized])
         encoding_seconds=time.perf_counter()-encoding_started
         started=time.perf_counter();self.c.begin();ids=[];binding_rows=[];entities={};vector_entries=[]
         try:
             with self.c.cursor() as q:
-                q.execute('SELECT COUNT(*) FROM episodic_events WHERE namespace=%s',(self.namespace,))
-                if q.fetchone()[0]+len(normalized)>10000:raise ValueError('Namespace event budget reached')
                 for event,vectors in zip(normalized,encoded):
                     q.execute('INSERT INTO episodic_events(namespace,frame,negated,event_time,place,roles,source,provenance,representation) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)',
                               (self.namespace,event['frame'],event['negated'],event['event_time'],event['place'],
@@ -265,6 +261,8 @@ class EpisodicMemory:
                     rows=q.fetchall();examples+=len(rows)
                     if examples>10000:raise ValueError('Replay budget exceeded; nothing deleted')
                     replays.append((key,relation,revision,rows))
+                from apfc import invalidate_evidence
+                invalidate_evidence(self.c,self.namespace,ids,permanent=(active is None))
                 if active is None:q.execute('DELETE FROM episodic_events WHERE namespace=%s AND id IN ('+marks+')',[self.namespace]+ids)
                 else:q.execute('UPDATE episodic_events SET active=%s WHERE namespace=%s AND id IN ('+marks+')',[active,self.namespace]+ids)
                 for key,relation,revision,rows in replays:
@@ -292,6 +290,8 @@ class EpisodicMemory:
         """Used only by isolated verification namespaces."""
         if not self.namespace.startswith('check_'):raise ValueError('Refusing operational namespace deletion')
         self.c.rollback();self.c.begin()
+        from apfc import clear_namespace
+        clear_namespace(self.c,self.namespace)
         with self.c.cursor() as q:
             q.execute('DELETE FROM episodic_events WHERE namespace=%s',(self.namespace,))
             q.execute('DELETE FROM episodic_operators WHERE namespace=%s',(self.namespace,))

@@ -50,8 +50,8 @@ def _local_identity():
 
 
 def chunks(text):
-    if not isinstance(text,str) or not text.strip() or len(text)>8192:
-        raise ValueError('Semantic text must contain 1..8192 characters')
+    if not isinstance(text,str) or not text.strip() or len(text.encode('utf-8'))>60000:
+        raise ValueError('Semantic text must contain text and fit in 60000 UTF-8 bytes')
     # Character windows are language-independent and preserve all source text;
     # no intent parser, keyword rules or hand-written synonym dictionary.
     result=[]
@@ -110,18 +110,23 @@ def embed_passages(texts):
     from encoder_runtime import request
     unique=list(dict.fromkeys(texts))
     groups={text:chunks(text) for text in unique}
-    encoded={};pending=[];size=0
+    encoded={}
+    # Keep each IPC request bounded, even for a long original source.
+    pending=[]; locations=[]
     def flush():
         result=request('passages',pending)
         if len(result['vectors'])!=len(pending):raise ArithmeticError('Invalid embedding batch')
-        for text,raw in zip(pending,result['vectors']):
-            vectors=[base64.b64decode(v,validate=True) for v in raw]
-            if len(vectors)!=len(groups[text]) or any(len(v)!=DIM*4 for v in vectors):
-                raise ArithmeticError('Invalid shared embedding shape')
-            encoded[text]=list(zip(groups[text],vectors))
+        for (text,index),raw in zip(locations,result['vectors']):
+            if len(raw)!=1:raise ArithmeticError('Invalid fragment response')
+            vector=base64.b64decode(raw[0],validate=True)
+            if len(vector)!=DIM*4:raise ArithmeticError('Invalid shared embedding shape')
+            encoded[text][index]=(groups[text][index],vector)
     for text in unique:
-        if pending and size+len(groups[text])>40:flush();pending=[];size=0
-        pending.append(text);size+=len(groups[text])
+        encoded[text]=[None]*len(groups[text])
+        for index,fragment in enumerate(groups[text]):
+            pending.append(fragment);locations.append((text,index))
+            if len(pending)==32:
+                flush();pending=[];locations=[]
     if pending:flush()
     return [encoded[text] for text in texts]
 
@@ -205,7 +210,7 @@ def backfill(memory,batch_size=32):
     return dict(indexed=len(pending),remaining=remaining,seconds=time.perf_counter()-started)
 
 
-def search(memory,text,limit=8,negated=None):
+def search(memory,text,limit=8,negated=None,include_sql=False,filters=None,frame=None):
     if not isinstance(limit,int) or isinstance(limit,bool) or not 1<=limit<=16:
         raise ValueError('Semantic retrieval limit must be 1..16')
     if negated is not None and not isinstance(negated,bool):raise ValueError('Invalid polarity')
@@ -214,21 +219,30 @@ def search(memory,text,limit=8,negated=None):
     clauses=['e.namespace=%s','e.active=1','v.encoder_id=%s']
     params=[vector,memory.namespace,encoder_id]
     if negated is not None:clauses.append('e.negated=%s');params.append(negated)
+    if filters or frame is not None:
+        from relational_memory import where
+        clause,extra=where(memory.namespace,frame,filters or [],negated)
+        clauses.append(clause);params.extend(extra)
     params.append(limit)
     memory.c.commit();sql_started=time.perf_counter()
     with memory.c.cursor() as q:
-        q.execute('''SELECT e.id,e.frame,e.negated,e.roles,e.source,e.event_time,e.place,
+        sql='''SELECT e.id,e.frame,e.negated,e.roles,e.source,e.event_time,e.place,
             MIN(VEC_DISTANCE_COSINE(v.embedding,%s)) AS distance
             FROM episodic_semantic_vectors v JOIN episodic_events e ON e.id=v.event_id
             WHERE '''+' AND '.join(clauses)+'''
             GROUP BY e.id,e.frame,e.negated,e.roles,e.source,e.event_time,e.place
-            ORDER BY distance,e.id LIMIT %s''',params)
+            ORDER BY distance,e.id LIMIT %s'''
+        q.execute(sql,params)
         events=[dict(event_id=r[0],frame=r[1],negated=bool(r[2]),roles=json.loads(r[3]),
                      source=r[4],time=r[5],place=r[6],distance=float(r[7]),
                      similarity=1-float(r[7])) for r in q.fetchall()]
-    return dict(events=events,count=len(events),encoder=MODEL,dimension=DIM,
+    result=dict(events=events,count=len(events),encoder=MODEL,dimension=DIM,
                 encoder_id=encoder_id,encoding_seconds=encoded_seconds,
                 sql_seconds=time.perf_counter()-sql_started,
                 scope='Semantic nearest-neighbor candidates, not logical proof or calibrated confidence. '
                       'Check source evidence, roles, negation, identity and context before answering. '
                       'An unrelated nearest neighbor is not evidence that the requested fact exists.')
+    if include_sql:
+        result['sql_trace']=[dict(sql=sql,parameters=[dict(type='VECTOR(384)',encoding='base64-float32-le',
+            value=base64.b64encode(vector).decode(),sha256=hashlib.sha256(vector).hexdigest())]+params[1:])]
+    return result

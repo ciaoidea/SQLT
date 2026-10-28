@@ -45,6 +45,24 @@ class RelationalTests(unittest.TestCase):
         self.assertEqual(query(self.m,[dict(role='missing role',operator='missing')])['total'],5)
         self.assertEqual(query(self.m,[dict(role='missing role',operator='exists')])['total'],0)
         self.assertEqual(query(self.m,[dict(role='entity',operator='in',value=['alpha','beta'])])['total'],2)
+    def test_executed_sql_trace_keeps_input_out_of_statement(self):
+        value="' OR 1=1 --"
+        result=query(self.m,[dict(role='entity',value=value)],include_sql=True)
+        self.assertEqual(result['total'],0)
+        self.assertEqual(len(result['sql_trace']),2)
+        for trace in result['sql_trace']:
+            self.assertNotIn(value,trace['sql'])
+            self.assertIn(value.casefold(),trace['parameters'])
+    def test_vector_sql_filters_before_ranking_and_reports_real_vector(self):
+        import base64
+        import semantic_memory
+        result=semantic_memory.search(self.m,'fiber connection',limit=8,negated=False,
+                                     filters=self.filters,frame='connection',include_sql=True)
+        self.assertEqual({e['roles'][0]['value'] for e in result['events']},{'alpha','beta'})
+        trace=result['sql_trace'][0]
+        self.assertIn('VEC_DISTANCE_COSINE',trace['sql'])
+        self.assertIn('EXISTS',trace['sql'])
+        self.assertEqual(len(base64.b64decode(trace['parameters'][0]['value'])),384*4)
     def test_validation_and_no_role_cross_event_matching(self):
         self.assertEqual(query(self.m,[dict(role='entity',value='gamma'),dict(role='line_type',value='ftth')])['total'],0)
         for filters in ([dict(role='entity',operator='raw_sql',value='x')],

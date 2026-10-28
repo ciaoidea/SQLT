@@ -4,9 +4,9 @@ from pathlib import Path
 import tarfile
 
 ROOT=Path(__file__).resolve().parent
-FILES=('AGENTS.md','README.md','INSTALL.md','CLAUDE.md','GEMINI.md','requirements.txt','cortex',
+FILES=('query_flow.py','live_dynamics.py','LIVE_DYNAMICS.md','structure_sync.py','STRUCTURE.md','AGENTS.md','README.md','INSTALL.md','CLAUDE.md','GEMINI.md','requirements.txt','cortex',
        'install.sh','installer.py','make_package.py','storage.py','episodic_memory.py',
-       'semantic_memory.py','relational_memory.py','mcp_server.py','memory_admin.py','encoder_runtime.py',
+       'apfc.py','apfc_browser.py','apfc_experience.py','APFC.md','verify_apfc.py','verify_apfc_chat.py','semantic_memory.py','relational_memory.py','mcp_server.py','memory_admin.py','encoder_runtime.py',
        'encoder_worker.py','verify_mcp.py','verify_semantic.py','verify_gpt_mcp.py',
        'verify_natural_chat.py','verify_forgetting.py','EXPERIMENTS.md','.gitignore')
 
@@ -15,6 +15,9 @@ def build(destination):
     paths=[ROOT/name for name in FILES if (ROOT/name).is_file()]
     paths+=sorted(ROOT.glob('test_*.py'))
     paths+=sorted((ROOT/'clients').glob('*.py'))
+    viewer_files=('live.js','map.html','map.css','map.js','server.py','planner.py','plan.schema.json',
+                  'test_viewer.py','README.txt','vendor/cytoscape.min.js','vendor/LICENSE-cytoscape')
+    paths += [ROOT/'sqlt.net'/name for name in viewer_files if (ROOT/'sqlt.net'/name).is_file()]
     destination=Path(destination);destination.parent.mkdir(parents=True,exist_ok=True)
     with tarfile.open(destination,'w:gz') as archive:
         for path in paths:

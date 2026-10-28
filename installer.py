@@ -198,9 +198,9 @@ print(json.dumps({'version':version,'vector_probe':True}))
 '''
         details=json.loads(run([self.python,'-c',code],capture=True,env=self.env))
         if not self.args.check:
-            run([self.python,'-c','from episodic_memory import EpisodicMemory;m=EpisodicMemory();m.close()'],env=self.env,capture=True)
+            run([self.python,'-c','from episodic_memory import EpisodicMemory;from apfc import ensure_schema;m=EpisodicMemory();ensure_schema(m.c);m.close()'],env=self.env,capture=True)
         else:
-            check="from storage import connect\nwith connect() as c:\n with c.cursor() as q:\n  q.execute(\"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('episodic_events','episodic_bindings','episodic_entities','episodic_operators','episodic_outcomes','semantic_encoders','episodic_semantic_vectors')\");assert q.fetchone()[0]==7,'Incomplete Cortex schema'"
+            check="from storage import connect\nwith connect() as c:\n with c.cursor() as q:\n  q.execute(\"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('episodic_events','episodic_bindings','episodic_entities','episodic_operators','episodic_outcomes','semantic_encoders','episodic_semantic_vectors')\");assert q.fetchone()[0]==7,'Incomplete Cortex schema'\n  q.execute(\"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name LIKE 'apfc_%'\");assert q.fetchone()[0]==10,'Incomplete APFC schema'"
             run([self.python,'-c',check],env=self.env,capture=True)
         self.report.update(details)
 

@@ -6,6 +6,7 @@ cd "$ROOT"
 export PATH="$HOME/.local/bin:$ROOT/.tools/clients/node_modules/.bin:$ROOT/.tools/node/bin:$PATH"
 case "${1:-}" in
   install) shift; exec ./install.sh "$@" ;;
+  apfc) shift; exec .venv/bin/python apfc.py "$@" ;;
   mcp) shift; exec .venv/bin/python mcp_server.py "$@" ;;
   verify) shift; exec .venv/bin/python verify_mcp.py "$@" ;;
   base|local) echo "Modalità SQLT legacy esclusa da questa installazione. Usa Cortex MCP." >&2; exit 2 ;;

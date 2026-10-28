@@ -51,6 +51,8 @@ class CodexMemoryClient:
             self.transport.close()
             raise
     def turn(self,text,operation='auto',fresh=False):
+        from live_dynamics import notify_chat_turn
+        graph_request_id=notify_chat_turn(self.namespace)
         if operation not in ('auto','learn','query'):raise ValueError('Unknown operation')
         if not isinstance(text,str) or not text.strip() or len(text)>64000:raise ValueError('Use 1..64000 characters')
         instructions={
@@ -70,12 +72,13 @@ records and relevant linked context before summarizing. Preserve the dates and d
 a draft or request from a sent message or completed action. Do not say no memory exists
 until the applicable structured name searches have also returned no matching evidence.
 {instructions}
+For a performed intervention in an ongoing case use apfc_start_experience after saving its source. Use only known pre-action features and a stable explicit outcome criterion. When its actual outcome arrives, retrieve the pending experience, save exact outcome evidence and use apfc_complete_experience; it atomically updates state and local numerical weights. Do not require technical commands from the user. Do not train on missing, hypothetical, predicted or repeated outcomes. A statement describing an already performed action and its observed result may start and then complete one retrospective experience. For a read-only query never create observations.
 For lists, tables or multiple supplied facts use remember_events in batches (up to 64) instead of repeated remember_event calls. Read the entire message before extracting. Keep all fields of one branch/entity together, with company and location identity in its role bindings; quote original evidence and preserve header context. Do not split each line or property into its own event. Confirm the total saved once, without narrating every record. Do not invent omitted contacts.
 Respond briefly in Italian. Do not claim your model weights changed.
+Live graph request ID: {graph_request_id or "inactive"}. If active, before the final answer call cortex.focus_memory with this exact request_id and only retrieved event IDs whose sources support the current request. Mere retrieval or cosine similarity is not relevance. Select [] if none. This changes visualization only. When inactive do not call focus_memory.
 Original user message follows as JSON data:
 {json.dumps(text,ensure_ascii=False)}'''
-        from .local_mcp import local_mcp_args
-        command=['codex',*local_mcp_args(),'exec','--skip-git-repo-check','--ephemeral','--json','-m','gpt-6.1-sol','-C',str(ROOT),'-c','approval_policy="never"','-c','model_reasoning_effort="low"','-']
+        command=['codex','exec','--skip-git-repo-check','--ephemeral','--json','-m','gpt-6.1-sol','-C',str(ROOT),'-c','approval_policy="never"','-c','model_reasoning_effort="low"','-']
         started=time.perf_counter()
         fresh_session=True;timing={}
         timeout=600 if len(text)>8000 else 180
@@ -118,16 +121,17 @@ Original user message follows as JSON data:
                 calls.append(dict(tool=item.get('tool'),arguments=item.get('arguments',{}),result=payload,error=item.get('error')))
         matching=[c for c in calls if c['arguments'].get('namespace','main')==self.namespace and not c['error']]
         writes=[c for c in matching if c['tool'] in ('remember_event','remember_events') and c['result'] and (c['result'].get('event_id') or c['result'].get('event_ids'))]
-        reads=[c for c in matching if c['tool'] in ('recall_events','semantic_recall','query_memory') and c['result'] is not None]
+        reads=[c for c in matching if c['tool'] in ('recall_events','semantic_recall','query_memory','apfc_case','apfc_context','apfc_experiences','apfc_predict','apfc_identity','apfc_status') and c['result'] is not None]
+        lifecycle=[c for c in matching if c['tool'] in ('apfc_start_experience','apfc_complete_experience','apfc_update_case') and c['result']]
         empty=[c for c in matching if c['tool']=='memory_status' and c['result'] and c['result'].get('events')==0]
         evidence=sorted({e['event_id'] for c in reads for e in c['result'].get('events',[])})
         removals=[c for c in matching if c['tool'] in ('forget_events','deactivate_events') and c['result'] and (c['result'].get('deleted_event_ids') or c['result'].get('deactivated_event_ids'))]
         restores=[c for c in matching if c['tool']=='restore_events' and c['result'] and c['result'].get('restored_event_ids')]
-        resolved_operation=('forget' if removals else ('restore' if restores else ('learn' if writes else 'query'))) if operation=='auto' else operation
-        verified=bool(removals if resolved_operation=='forget' else (restores if resolved_operation=='restore' else (writes if resolved_operation=='learn' else reads or empty))) and not forbidden
+        resolved_operation=('forget' if removals else ('restore' if restores else ('learn' if writes or lifecycle else 'query'))) if operation=='auto' else operation
+        verified=bool(removals if resolved_operation=='forget' else (restores if resolved_operation=='restore' else (writes or lifecycle if resolved_operation=='learn' else reads or empty))) and not forbidden
         self.last=dict(requested_operation=operation,operation=resolved_operation,namespace=self.namespace,model='gpt-6.1-sol',fresh_session=fresh_session,timing=timing,
                        answer=answer,verified_memory_access=verified,event_ids=([i for c in removals for i in c['result'].get('deleted_event_ids',c['result'].get('deactivated_event_ids',[]))] if resolved_operation=='forget' else ([i for c in restores for i in c['result']['restored_event_ids']] if resolved_operation=='restore' else ([i for c in writes for i in c['result'].get('event_ids',[c['result'].get('event_id')])] if resolved_operation=='learn' else evidence))),
-                       calls=calls,seconds=time.perf_counter()-started,forbidden_fallbacks=forbidden)
+                       learning_updated=any(c['tool']=='apfc_complete_experience' and c['result'] and c['result'].get('learning_updated') for c in matching),calls=calls,seconds=time.perf_counter()-started,forbidden_fallbacks=forbidden)
         return self.last
 
 def display(result,as_json=False):

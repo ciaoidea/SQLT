@@ -47,6 +47,14 @@ Preserve evidence, identity, negation and dates. Similarity is not proof. Store 
 facts with remember_events, quoting the original evidence; keep related entity fields together.
 Do not save generated guesses or ordinary task instructions as knowledge. Forgetting follows
 Cortex MCP archival/deletion semantics. Never reset a memory namespace without explicit confirmation.
+For ongoing work, reconstruct the case from sourced evidence BEFORE conclusions or next actions:
+request, completed checks, actually sent communications, responses and unresolved questions.
+Distinguish drafts, proposals and requests from actual execution. Consult original external
+sources for current status. Do not propose repeating a completed action without checking its
+outcome and subsequent replies. If these cannot be checked, explicitly say state unverified.
+For every quantity preserve its population, unit, date and source; different scopes are not
+interchangeable. The automatic retrieval is bounded evidence, NOT a complete case history.
+Use exact case/entity queries and pagination to fill gaps. Never claim no reply based on top-k.
 Use tools to verify actual changes. Keep replies clean: no internal DB IDs or trace JSON unless asked.
 For memory lookups, return only the answer. Do not announce searching, consulting
 the database or using memory, and do not send interim commentary for these lookups.
@@ -187,7 +195,7 @@ def main():
         p.error('cwd must be a directory')
     session_dir = Path.home() / '.local/state/cortex/sessions' / a.namespace
     client = PersistentCodex(cwd, model=a.model, instructions=instructions(a.namespace), agent=True,
-                             session_dir=session_dir)
+                             session_dir=session_dir, memory_root=ROOT, namespace=a.namespace)
     terminal = TerminalInput() if a.ask is None else None
     last = None
     try:
@@ -239,10 +247,12 @@ def main():
                         memory.transport.close()
                     continue
                 view = Presentation()
+                client.wait_notice = None
                 try:
-                    events, fresh, timing = client.turn(text, timeout=a.timeout, on_event=view.event)
+                    events, fresh, timing = client.turn(text, timeout=max(a.timeout, 600) if len(text)>8000 else a.timeout, on_event=view.event)
                     last = {'tools': view.calls, 'timing': timing, 'new_conversation': fresh}
                 finally:
+                    client.wait_notice = None
                     view.boundary()
             except KeyboardInterrupt:
                 client.close()

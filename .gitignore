@@ -1,11 +1,11 @@
-.venv/
+.venv
 .env.json
-__pycache__/
+__pycache__
 .granite-reader.env
-.semantic-model/
-.run/
-.install/
-.tools/
+.semantic-model
+.run
+.install
+.tools
 mcp.config.json
 dist/
 
@@ -16,3 +16,5 @@ verification*.json
 .env*
 *-events.json
 *-answer.txt
+
+.structure

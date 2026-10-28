@@ -29,6 +29,14 @@ class BulkTests(unittest.TestCase):
         with self.memory.c.cursor() as cursor:
             cursor.execute('SELECT COUNT(*) FROM episodic_semantic_vectors WHERE event_id IN (%s,%s,%s)',result['event_ids'])
             self.assertEqual(cursor.fetchone()[0],3)
+    def test_long_source_persists_complete_text_and_fragments(self):
+        source='Observed source with supporting details. '*250
+        event=dict(self.events()[0],source=source)
+        result=self.memory.remember_many([event])
+        with self.memory.c.cursor() as cursor:
+            cursor.execute('SELECT source FROM episodic_events WHERE id=%s',(result['event_ids'][0],))
+            self.assertEqual(cursor.fetchone()[0],source)
+        self.assertGreater(result['semantic_chunks'],20)
     def test_invalid_final_record_writes_nothing(self):
         events=self.events();events[-1]['roles'].append(events[-1]['roles'][0])
         with patch('semantic_memory.embed_passages') as encode:
@@ -52,7 +60,7 @@ class BulkTests(unittest.TestCase):
     def test_source_budgets_validate_before_encoding(self):
         events=self.events()*22
         with self.assertRaises(ValueError):self.memory.remember_many(events)
-        with self.assertRaises(ValueError):self.memory.remember_many([dict(self.events()[0],source='x'*8193)])
+        with self.assertRaises(ValueError):self.memory.remember_many([dict(self.events()[0],source='x'*60001)])
     def test_one_encoder_ipc_batch_for_short_sources(self):
         from encoder_runtime import request
         with patch('encoder_runtime.request',wraps=request) as ipc:

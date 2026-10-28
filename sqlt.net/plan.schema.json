@@ -1,0 +1,108 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "title": {
+      "type": "string"
+    },
+    "dataset": {
+      "type": "string",
+      "enum": [
+        "memory",
+        "cases",
+        "experiences",
+        "policies",
+        "entities"
+      ]
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "relational",
+        "semantic",
+        "hybrid",
+        "clarify"
+      ]
+    },
+    "queries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "frame": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "filters": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "role": {
+                  "type": "string"
+                },
+                "operator": {
+                  "type": "string",
+                  "enum": [
+                    "eq",
+                    "ne",
+                    "contains",
+                    "prefix",
+                    "number_eq",
+                    "gt",
+                    "gte",
+                    "lt",
+                    "lte",
+                    "exists",
+                    "missing"
+                  ]
+                },
+                "value": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "role",
+                "operator",
+                "value"
+              ]
+            }
+          }
+        },
+        "required": [
+          "frame",
+          "filters"
+        ]
+      }
+    },
+    "semantic_query": {
+      "type": "string"
+    },
+    "group_by": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 4
+    },
+    "clarification": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "dataset",
+    "title",
+    "mode",
+    "queries",
+    "semantic_query",
+    "group_by",
+    "clarification"
+  ]
+}

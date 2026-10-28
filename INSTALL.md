@@ -52,3 +52,12 @@ The resulting `dist/cortex-installer.tar.gz` contains only allowlisted source,
 tests and public documentation. It excludes local settings, DB state, verification
 outputs, caches, dependencies and account authentication. Extracting and installing
 it creates an independent installation with new credentials and empty memory.
+
+## Optional visual browser
+
+The installer includes `sqlt.net/` and its Python dependencies. After setup, run
+`.venv/bin/python sqlt.net/server.py` from the installed CORTEX directory and open
+http://127.0.0.1:8090/. Select a different local port using `--port 9000`.
+Natural-language planning requires the same user's installed Codex CLI and login.
+The browser reuses the private database configuration; it does not provision a
+second database or require an external web server. See `sqlt.net/README.txt`.

@@ -3,3 +3,4 @@ numpy
 pymysql
 fastembed==0.8.1
 prompt-toolkit>=3.0.50,<4
+jsonschema>=4,<5

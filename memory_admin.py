@@ -15,6 +15,8 @@ def reset_memory(namespace, confirmation):
             with connection.cursor() as cursor:
                 cursor.execute('SELECT COUNT(*) FROM episodic_events WHERE namespace=%s',(namespace,))
                 episodes=cursor.fetchone()[0]
+                from apfc import clear_namespace
+                clear_namespace(connection,namespace)
                 # Bindings, outcomes and semantic vectors follow their event FK.
                 cursor.execute('DELETE FROM episodic_events WHERE namespace=%s',(namespace,))
                 cursor.execute('DELETE FROM episodic_operators WHERE namespace=%s',(namespace,))
