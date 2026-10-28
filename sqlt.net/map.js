@@ -242,8 +242,8 @@ function canvasSpace(container){
     const yy=ny*ax-zz*bx,z=ny*bx+zz*ax;
     const light=Math.max(0,xx*-.3+yy*-.45-z*.84);
     // Faint anatomical wireframe; no solid surface obscures the graph.
-    ctx.strokeStyle=`rgba(130,175,205,${.018+.065*light})`;
-    ctx.lineWidth=.55;
+    ctx.strokeStyle=`rgba(130,175,205,${.045+.12*light})`;
+    ctx.lineWidth=.7;
     const [a,b,c]=f.ids.map(i=>projected[i]);
     ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.lineTo(c.x,c.y);ctx.closePath();ctx.stroke();
    }
