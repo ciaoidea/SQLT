@@ -164,3 +164,29 @@ An explicit empty selection leaves no supporting-memory nodes. Viewer queries
 retain their own canonical result and are not filtered by this chat mechanism.
 Third-party clients must provide turn IDs and the focus step to offer the same
 behavior. Restart pre-existing Cortex/MCP clients once to load the new tool.
+
+
+## Skill Gateway and operational traces
+
+The rose wireframe brainstem is an architectural landmark. The native persistent
+Codex client now observes actual `item/started` and `item/completed` events for
+MCP tools and shell commands. Cortex memory calls retain their existing richer
+trace and are not duplicated. Recognized executable paths under a skill's
+`scripts/` directory label a skill invocation; arbitrary mentions or reading
+SKILL.md do not prove execution. Other shell invocations remain generic commands.
+
+Only a bounded identifier, tool/skill label, category, phase and status are sent.
+Arguments, outputs, prompts, credentials and business results are omitted.
+A completed tool is not independent confirmation of its intended outcome.
+The graph retains up to 32 operational calls for the current user request, even
+when semantic focus selects no memory. New chat requests clear that trace.
+Flare motion follows core → gateway → observed call; it is a visual representation
+of dispatch, not hidden LLM reasoning or an anatomical tract measurement.
+
+Collection remains opt-in while Graph/Live is visible, via the same leased IPC.
+There are no extra LLM calls, database writes or background process polling for
+this feature. Uninstrumented third-party clients/background processes are outside
+coverage. Shell commands with unresolved wrappers may be labeled generic rather
+than guessed to be skills. A skill invoked by an LLM is not automatically a local
+LLM-bypass execution and does not activate the hypofrontality badge.
+Existing native chat processes need one restart to load the lifecycle hook.

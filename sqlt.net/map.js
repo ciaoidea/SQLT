@@ -33,6 +33,7 @@ panelToggle('toggle-collections','collections-collapsed');
 panelToggle('toggle-query','query-collapsed');
 panelToggle('live-state','activity-collapsed');
 $('toggle-details').addEventListener('click',()=>document.body.classList.toggle('inspecting'));
+$('recenter-brain').addEventListener('click',()=>{if(space)space.resetOrientation();});
 $('brain-fullscreen').addEventListener('click',async()=>{
  try{
   await document.querySelector('.canvas').requestFullscreen();
@@ -54,6 +55,24 @@ $('toggle-focus').addEventListener('click',()=>{
 
 let currentCatalog=null,currentDataset='memory',browseSpec={dataset:'memory',filters:[],offset:0},lastData=null,viewMode='table',detailRequest=0;
 let graphSource='empty';
+const executionTrace=new Map();
+function observeExecution(event){
+ if(!window.CortexLive?.active())return;
+ if(!executionTrace.has(event.call)&&executionTrace.size>=32)executionTrace.delete(executionTrace.keys().next().value);
+ const index=executionTrace.get(event.call)?.index??executionTrace.size;
+ const side=event.category==='command'?-1:1;
+ const region=insideBrain({x:side*160,y:-85,z:65},.65);
+ const target=insideBrain({x:region.x+side*((index%4)-1.5)*24,y:region.y+Math.floor(index/4)*17,z:region.z+22*Math.sin(index*2.4)},.68);
+ const gateway={x:0,y:-40,z:-215};
+ const path=[{x:0,y:0,z:0}];
+ const addCurve=(a,b,c)=>{for(let i=1;i<=16;i++){const t=i/16,u=1-t;path.push({x:u*u*a.x+2*u*t*c.x+t*t*b.x,y:u*u*a.y+2*u*t*c.y+t*t*b.y,z:u*u*a.z+2*u*t*c.z+t*t*b.z});}};
+ addCurve(path[0],gateway,{x:0,y:-25,z:-105});
+ addCurve(gateway,region,{x:side*120,y:-90,z:-110});
+ addCurve(region,target,{x:(region.x+target.x)/2,y:(region.y+target.y)/2-8,z:region.z+15});
+ executionTrace.set(event.call,{...event,index,region,target,path,updated:performance.now()});
+ $('status').textContent=executionTrace.size+' observed operations · session trace retained';
+}
+
 let cy, selected = null, request = 0, space = null, rotating = true, pendingClarification = null;
 // Hierarchical hubs accumulate all distinct descendants, not just immediate links.
 function aggregateCounts(nodes, links) {
@@ -290,12 +309,24 @@ function brainJoinRoutes(nodes,links){
  });
 }
 
+function brainstemLines(){
+ const lines=[];
+ const vertex=(level,strand)=>{
+  const t=level/14,a=strand*Math.PI/4;
+  const radius=9+14*Math.exp(-Math.pow((t-.57)/.18,2));
+  return {x:Math.cos(a)*radius*(1+.1*Math.sin(level*7+strand)),y:-65*t+Math.sin(a)*radius,z:-350*t};
+ };
+ for(let strand=0;strand<8;strand++)lines.push(Array.from({length:15},(_,i)=>vertex(i,strand)));
+ for(let i=1;i<14;i++)for(let j=0;j<8;j+=2)lines.push([vertex(i,j),vertex(i+1,(j+1)%8),vertex(i,(j+2)%8)]);
+ return lines;
+}
 function canvasSpace(container){
  const canvas=document.createElement('canvas');container.appendChild(canvas);
  const ctx=canvas.getContext('2d');
  let w=container.clientWidth,h=container.clientHeight,data={nodes:[],links:[]},angleX=.65,angleY=.12,angleZ=0,zoom=1,panX=0,panY=0,points=[],drag=null,moved=0,dirty=true,running=false,last=0,raf,hovered=null;
  const controls={autoRotate:true,autoRotateSpeed:.6};
  const brain=prepareBrainFrame();
+ const stemLines=brainstemLines();
 
  function draw(){
   ctx.clearRect(0,0,w,h);
@@ -330,6 +361,10 @@ function canvasSpace(container){
    }
    ctx.restore();
   }
+  // Structural stalk: only execution events animate its operational branches.
+  ctx.save();ctx.strokeStyle='rgba(224,160,177,.28)';ctx.lineWidth=.65;
+  for(const line of stemLines){ctx.beginPath();line.forEach((v,i)=>{const p=project(v);if(i)ctx.lineTo(p.x,p.y);else ctx.moveTo(p.x,p.y);});ctx.stroke();}
+  ctx.restore();
   // Open irregular network scaffold: no rings, tube walls or solid surface.
   ctx.save();ctx.lineWidth=.65;
   for(const side of [-1,1]){
@@ -446,6 +481,28 @@ function canvasSpace(container){
    ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.lineTo(c.x,c.y);ctx.lineTo(a.x,a.y);ctx.moveTo(b.x,b.y);ctx.lineTo(d.x,d.y);ctx.lineTo(c.x,c.y);ctx.stroke();
   }
   ctx.font='10px system-ui';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle='#e0a0b1';ctx.fillText('LLM Core',core.x,core.y+16);
+  // Session-only operational paths survive semantic focus/pruning.
+  const gateway=project({x:0,y:-40,z:-215});
+  ctx.font='9px system-ui';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle='#d6a2b4';ctx.fillText('Skill Gateway',gateway.x,gateway.y+6);
+  const operations=[...executionTrace.values()];
+  operations.forEach((op,i)=>{
+   const target=project(op.target),region=project(op.region);
+   const route=op.path.map(project);
+   const rgb=op.status==='failed'?'245,105,115':op.status==='running'?'248,200,130':'180,218,194';
+   ctx.strokeStyle=`rgba(${rgb},.65)`;ctx.lineWidth=1.15;
+   ctx.beginPath();route.forEach((p,j)=>{if(j)ctx.lineTo(p.x,p.y);else ctx.moveTo(p.x,p.y);});ctx.stroke();
+   const age=(performance.now()-op.updated)/1000;
+   if(age<1.2){
+    const t=Math.min(1,age/1.2)*(route.length-1),segment=Math.min(route.length-2,Math.floor(t)),f=t-segment;
+    const a=route[segment],b=route[segment+1];
+    ctx.fillStyle=`rgba(${rgb},.95)`;ctx.beginPath();ctx.arc(a.x+(b.x-a.x)*f,a.y+(b.y-a.y)*f,2.5,0,Math.PI*2);ctx.fill();
+   }
+   ctx.fillStyle=`rgba(${rgb},.9)`;ctx.beginPath();ctx.arc(target.x,target.y,3.5,0,Math.PI*2);ctx.fill();
+   if(i===0||operations.slice(0,i).every(other=>other.category!==op.category)){ctx.fillStyle='rgba(224,160,177,.6)';ctx.font='9px system-ui';ctx.fillText(op.category==='skill'?'Skill operations':op.category==='connector'?'Connector operations':'Command operations',region.x,region.y-18);}
+   const label=op.label.length>29?op.label.slice(0,27)+'…':op.label;
+   ctx.font='9px system-ui';ctx.fillText(label,target.x,target.y+8);
+   points.push({n:{id:'op-'+op.call,label:op.label,kind:'execution',execution:op},...target,r:5});
+  });
   points.push(core);
   dirty=!!window.CortexLive?.animating();
  }
@@ -458,7 +515,7 @@ function canvasSpace(container){
  canvas.addEventListener('pointermove',e=>{
   if(!drag){const hit=hitAt(e);hovered=hit?hit.n.id:null;dirty=true;canvas.style.cursor=hit?'pointer':'grab';
    const card=$('hover-card');card.hidden=!hit;
-   if(hit){$('hover-title').textContent=hit.n.label;$('hover-description').textContent=hit.n.kind==='llm-core'?'Language-model interface: interpretation, planning and generation. This marker does not indicate measured model activity.':description(hit.n);
+   if(hit){$('hover-title').textContent=hit.n.label;$('hover-description').textContent=hit.n.kind==='execution'?hit.n.execution.category+' · '+hit.n.execution.status+' · observed tool lifecycle, not independent outcome verification':hit.n.kind==='llm-core'?'Language-model interface: interpretation, planning and generation. This marker does not indicate measured model activity.':description(hit.n);
     const rect=container.getBoundingClientRect();card.style.left=Math.max(8,Math.min(e.clientX-rect.left+18,w-340))+'px';card.style.top=Math.max(8,Math.min(e.clientY-rect.top+18,h-card.offsetHeight-12))+'px';}
    return;
   }
@@ -466,12 +523,15 @@ function canvasSpace(container){
  });
  canvas.addEventListener('pointerup',e=>{if(drag&&moved<5){const hit=hitAt(e);if(hit){if(hit.n.kind==='llm-core'){
     showCoreDetails();
+   }else if(hit.n.kind==='execution'){
+    document.body.classList.add('inspecting');$('details').replaceChildren();text('h1',hit.n.label,$('details'));text('p',hit.n.execution.category+' · '+hit.n.execution.status,$('details'));text('p','Observed tool lifecycle. Completion is not independent verification of a physical or business outcome. Arguments and outputs are not transported.',$('details'));
    }else inspect(cy.getElementById(hit.n.id));}}drag=null;});
  canvas.addEventListener('wheel',e=>{e.preventDefault();zoom=Math.max(.15,Math.min(6,zoom*Math.exp(-e.deltaY*.001)));dirty=true;},{passive:false});
  const api={
   graphData(value){if(!value)return data;hovered=null;$('hover-card').hidden=true;const nodes=constellation(value.nodes,value.links).map(n=>insideBrain(n));data={nodes,links:brainJoinRoutes(nodes,value.links)};dirty=true;return api;},
   width(value){w=value;size();return api;},height(value){h=value;size();return api;},
   controls(){return controls;},renderer(){return {setPixelRatio(){}};},
+  resetOrientation(){angleX=.65;angleY=.12;angleZ=0;zoom=1;panX=panY=0;hovered=null;dirty=true;return api;},
   zoomToFit(){zoom=1;panX=panY=0;dirty=true;return api;},onEngineStop(){return api;},
   pauseAnimation(){running=false;cancelAnimationFrame(raf);return api;},
   resumeAnimation(){if(!running){running=true;raf=requestAnimationFrame(frame);}return api;}
@@ -543,6 +603,7 @@ function focusMemory(records,ids){
  $('result-title').textContent=ids.length?'Selected supporting memory':'No supporting memory selected';
  $('result-scope').textContent='Selected by the language model for the current request · not independent verification';
  $('status').textContent=`${cy.nodes().length} nodes · ${cy.edges().length} supporting links · ${records.length}/${ids.length} selected records in visual trace`;
+ if(executionTrace.size){$('result-title').textContent='Memory and operational trace';$('result-scope').textContent='Model-selected memories and observed tool lifecycle · completion is not independent outcome verification';$('status').textContent+=' · '+executionTrace.size+' observed operations retained';}
  return true;
 }
 function selectMemory(ids){
@@ -557,6 +618,7 @@ function selectMemory(ids){
 }
 function beginChatTurn(){
  if(document.body.dataset.view!=='graph'||!window.CortexLive?.active())return;
+ executionTrace.clear();
  request++;graphSource='chat';selected=null;pendingClarification=null;
  cy.elements().remove();layout();
  document.body.classList.remove('inspecting');$('details').replaceChildren();
@@ -569,7 +631,7 @@ function beginChatTurn(){
  $('apply-filter').disabled=true;$('clear-filter').disabled=true;
  $('active-filters').hidden=true;$('loading').hidden=true;$('submit-query').disabled=false;
 }
-window.CortexGraph={observeMemory,selectMemory,focusMemory,beginChatTurn};
+window.CortexGraph={observeMemory,selectMemory,focusMemory,beginChatTurn,observeExecution};
 function sync3D(){
  if(!space)return;
  const previous=new Map(space.graphData().nodes.map(n=>[n.id,n]));

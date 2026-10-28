@@ -257,6 +257,12 @@ class LiveCollector:
                       'origin':event.get('origin') if event.get('origin') in ('viewer','gate') else 'client',
                       'duration_ms':max(0,min(3600000,float(event.get('duration_ms',0)))),
                       'count':max(0,int(event.get('count',0))),'records':clean}
+                if item['operation']=='execution_trace':
+                    label=event.get('label','')
+                    if not isinstance(label,str) or not re.fullmatch(r'[A-Za-z0-9_ ./-]{1,96}',label):continue
+                    if event.get('category') not in ('skill','command','connector'):continue
+                    if event.get('status') not in ('running','completed','failed'):continue
+                    item.update(label=label,category=event['category'],status=event['status'],request_id=str(event.get('request_id',''))[:32])
                 if item['operation']=='chat_turn':
                     item['engine']=event.get('engine') if event.get('engine') in ('Codex app-server','Codex exec') else None
                     item['effort']=event.get('effort') if event.get('effort') in ('low','medium','high','xhigh') else None
@@ -358,3 +364,37 @@ def running_chat_models(root=ROOT):
                 'seen':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())})
         except (OSError,ValueError,UnicodeError):continue
     return {'sessions':sessions[:16],'scope':'Same-user process metadata; installation checked when permissions allow'}
+
+
+def trace_client_execution(namespace, request_id, item, phase):
+    """Observe actual app-server tool lifecycle; never transmit args or outputs."""
+    if not request_id or not watching(namespace) or phase not in ('start','complete'):return
+    kind=str(item.get('type','')).replace('_','').lower()
+    label=None;category=None
+    if kind=='mcptoolcall':
+        server=str(item.get('server',''));tool=str(item.get('tool',''))
+        if server=='cortex':return  # memory has its own richer trace
+        if re.fullmatch(r'[A-Za-z0-9_.-]{1,48}',server) and re.fullmatch(r'[A-Za-z0-9_.-]{1,80}',tool):
+            label=(server+'/'+tool)[:96];category='connector'
+    elif kind=='commandexecution':
+        category='command';label='Shell command'
+        # Attribute only executable paths, never arbitrary mentions in output.
+        import shlex
+        try:
+            tokens=shlex.split(str(item.get('command',''))[:16384])
+            if len(tokens)>=3 and Path(tokens[0]).name in ('bash','sh','zsh') and tokens[1] in ('-lc','-c'):
+                tokens=shlex.split(tokens[2])
+            executable=next((t for t in tokens if t and '=' not in t), '')
+            candidate=tokens[1] if Path(executable).name in ('python','python3','node') and len(tokens)>1 else executable
+            match=re.search(r'/skills/([A-Za-z0-9_-]{1,64})/scripts/[A-Za-z0-9_./-]+$',candidate)
+            if match:category='skill';label=match.group(1)
+        except ValueError:pass
+    if not label:return
+    ident=str(item.get('id',''))
+    if not ident:return
+    failed=bool(item.get('error')) or (isinstance(item.get('result'),dict) and item['result'].get('isError') is True) or str(item.get('status','')).lower() in ('failed','error','declined','cancelled') or (type(item.get('exitCode',item.get('exit_code'))) is int and item.get('exitCode',item.get('exit_code'))!=0)
+    status='running' if phase=='start' else 'failed' if failed else 'completed'
+    emit(namespace,{'operation':'execution_trace','phase':'start' if phase=='start' else 'error' if failed else 'complete',
+        'request_id':request_id,'call':hashlib.sha256(ident.encode()).hexdigest()[:24],
+        'producer':os.getpid(),'origin':'client','records':[],'count':0,'duration_ms':0,
+        'category':category,'label':label,'status':status})

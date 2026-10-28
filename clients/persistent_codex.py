@@ -252,6 +252,9 @@ class PersistentCodex:
                 method = message.get('method')
                 if params.get('turnId') not in (None, turn_id):
                     continue
+                if visual_turn and method in ('item/started','item/completed'):
+                    from live_dynamics import trace_client_execution
+                    trace_client_execution(self.namespace,visual_turn,params.get('item',{}),'start' if method=='item/started' else 'complete')
                 if on_event:
                     on_event(method, params)
                 if method == 'item/started' and params['item']['type'] == 'mcpToolCall':

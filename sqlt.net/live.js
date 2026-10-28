@@ -27,6 +27,7 @@ window.CortexLive=(()=>{
   const now=performance.now();
   for(const event of events){
    if(event.origin==='viewer')continue;
+   if(event.operation==='execution_trace'&&event.request_id===activeTurn)window.CortexGraph?.observeExecution(event);
    if(event.operation==='skill_bypass'){
     if(event.phase==='start')activeSkills.add(event.call);else activeSkills.delete(event.call);
     $('skill-state').hidden=!activeSkills.size;
@@ -48,6 +49,7 @@ window.CortexLive=(()=>{
    const eventRecords=focusedEvent?focusRecords:(event.records||[]);
    const nodes=eventRecords.flatMap(r=>['e-'+r.id,...(r.bindings||[]).map(b=>b.id)]);
    const joins=eventRecords.flatMap(r=>(r.bindings||[]).map(b=>({source:'e-'+r.id,target:b.id})));
+   if(event.operation==='execution_trace')continue;
    bursts.push({...event,born:now,...(retained&&focusedEvent?{pipeline:true,nodes,joins}:{collapseAt:focus?now:undefined})});
    if(bursts.length>48)bursts.shift();
    const label=event.phase==='start'?'started':event.phase==='error'?'failed':`${event.count} matched · ${event.duration_ms.toFixed(1)} ms`;
