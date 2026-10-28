@@ -63,10 +63,9 @@ function observeExecution(event){
  const side=event.category==='command'?-1:1;
  const region=insideBrain({x:side*160,y:-85,z:65},.65);
  const target=insideBrain({x:region.x+side*((index%4)-1.5)*24,y:region.y+Math.floor(index/4)*17,z:region.z+22*Math.sin(index*2.4)},.68);
- const gateway={x:0,y:-40,z:-215};
- const path=[{x:0,y:0,z:0}];
+ const gateway=brainstemCenter(.62);
+ const path=Array.from({length:17},(_,i)=>brainstemCenter(.62*i/16));
  const addCurve=(a,b,c)=>{for(let i=1;i<=16;i++){const t=i/16,u=1-t;path.push({x:u*u*a.x+2*u*t*c.x+t*t*b.x,y:u*u*a.y+2*u*t*c.y+t*t*b.y,z:u*u*a.z+2*u*t*c.z+t*t*b.z});}};
- addCurve(path[0],gateway,{x:0,y:-25,z:-105});
  addCurve(gateway,region,{x:side*120,y:-90,z:-110});
  addCurve(region,target,{x:(region.x+target.x)/2,y:(region.y+target.y)/2-8,z:region.z+15});
  executionTrace.set(event.call,{...event,index,region,target,path,updated:performance.now()});
@@ -309,12 +308,13 @@ function brainJoinRoutes(nodes,links){
  });
 }
 
+function brainstemCenter(t){return {x:0,y:-65*t,z:-350*t};}
 function brainstemLines(){
  const lines=[];
  const vertex=(level,strand)=>{
   const t=level/14,a=strand*Math.PI/4;
   const radius=9+14*Math.exp(-Math.pow((t-.57)/.18,2));
-  return {x:Math.cos(a)*radius*(1+.1*Math.sin(level*7+strand)),y:-65*t+Math.sin(a)*radius,z:-350*t};
+  const center=brainstemCenter(t);return {x:center.x+Math.cos(a)*radius*(1+.1*Math.sin(level*7+strand)),y:center.y+Math.sin(a)*radius,z:center.z};
  };
  for(let strand=0;strand<8;strand++)lines.push(Array.from({length:15},(_,i)=>vertex(i,strand)));
  for(let i=1;i<14;i++)for(let j=0;j<8;j+=2)lines.push([vertex(i,j),vertex(i+1,(j+1)%8),vertex(i,(j+2)%8)]);
@@ -482,7 +482,7 @@ function canvasSpace(container){
   }
   ctx.font='10px system-ui';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle='#e0a0b1';ctx.fillText('LLM Core',core.x,core.y+16);
   // Session-only operational paths survive semantic focus/pruning.
-  const gateway=project({x:0,y:-40,z:-215});
+  const gateway=project(brainstemCenter(.62));
   ctx.font='9px system-ui';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle='#d6a2b4';ctx.fillText('Skill Gateway',gateway.x,gateway.y+6);
   const operations=[...executionTrace.values()];
   operations.forEach((op,i)=>{
@@ -493,14 +493,16 @@ function canvasSpace(container){
    ctx.beginPath();route.forEach((p,j)=>{if(j)ctx.lineTo(p.x,p.y);else ctx.moveTo(p.x,p.y);});ctx.stroke();
    const age=(performance.now()-op.updated)/1000;
    if(age<1.2){
-    const t=Math.min(1,age/1.2)*(route.length-1),segment=Math.min(route.length-2,Math.floor(t)),f=t-segment;
-    const a=route[segment],b=route[segment+1];
-    ctx.fillStyle=`rgba(${rgb},.95)`;ctx.beginPath();ctx.arc(a.x+(b.x-a.x)*f,a.y+(b.y-a.y)*f,2.5,0,Math.PI*2);ctx.fill();
+    const lengths=[0];for(let j=1;j<route.length;j++)lengths.push(lengths[j-1]+Math.hypot(route[j].x-route[j-1].x,route[j].y-route[j-1].y));
+    const at=q=>{const distance=Math.max(0,Math.min(1,q))*(lengths.at(-1)||1);let j=1;while(j<lengths.length-1&&lengths[j]<distance)j++;const f=(distance-lengths[j-1])/(lengths[j]-lengths[j-1]||1);return {x:route[j-1].x+(route[j].x-route[j-1].x)*f,y:route[j-1].y+(route[j].y-route[j-1].y)*f};};
+    const progress=age/1.2;
+    for(let j=7;j>=0;j--){const a=at(progress-(j+1)*.02),b=at(progress-j*.02);ctx.strokeStyle=`rgba(${rgb},${.85*(1-j/8)})`;ctx.lineWidth=1+1.7*(1-j/8);ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}
+    const tip=at(progress);ctx.fillStyle=`rgba(${rgb},.95)`;ctx.beginPath();ctx.arc(tip.x,tip.y,2.5,0,Math.PI*2);ctx.fill();
    }
    ctx.fillStyle=`rgba(${rgb},.9)`;ctx.beginPath();ctx.arc(target.x,target.y,3.5,0,Math.PI*2);ctx.fill();
    if(i===0||operations.slice(0,i).every(other=>other.category!==op.category)){ctx.fillStyle='rgba(224,160,177,.6)';ctx.font='9px system-ui';ctx.fillText(op.category==='skill'?'Skill operations':op.category==='connector'?'Connector operations':'Command operations',region.x,region.y-18);}
-   const label=op.label.length>29?op.label.slice(0,27)+'…':op.label;
-   ctx.font='9px system-ui';ctx.fillText(label,target.x,target.y+8);
+   ctx.font='9px system-ui';ctx.fillText(op.category==='skill'?'Skill':op.category==='connector'?'Connector':'Command',target.x,target.y+8);
+   const labelLines=op.label.match(/.{1,28}/g)||[op.label];labelLines.forEach((line,j)=>ctx.fillText(line,target.x,target.y+19+j*11));
    points.push({n:{id:'op-'+op.call,label:op.label,kind:'execution',execution:op},...target,r:5});
   });
   points.push(core);
