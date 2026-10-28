@@ -4,7 +4,7 @@ window.CortexLive=(()=>{
  let enabled=true, timer=null, abort=null, cursor=0, generation=null, epoch=0;
  const client=crypto.randomUUID().replaceAll('-','');
  const bursts=[],history=[];
- let building=false,activeTurn=null;
+ let building=false,activeTurn=null,lastModel=null;
  const candidateCache=new Map();
  const activeSkills=new Set();
  function clearSkills(){activeSkills.clear();$('skill-state').hidden=true;}
@@ -20,6 +20,8 @@ window.CortexLive=(()=>{
   if(boundary>=0){
    window.CortexGraph?.beginChatTurn();
    resetView();activeTurn=events[boundary].call;candidateCache.clear();
+   lastModel={name:events[boundary].model||null,engine:events[boundary].engine||null,effort:events[boundary].effort||null,producer:events[boundary].producer,seen:new Date().toISOString()};
+   window.dispatchEvent(new Event('cortex-model-info'));
    events=events.slice(boundary);
   }
   const now=performance.now();
@@ -183,5 +185,5 @@ window.CortexLive=(()=>{
   new MutationObserver(reconcile).observe(document.body,{attributes:true,attributeFilter:['data-view']});
  }
  document.addEventListener('DOMContentLoaded',install);
- return {render,active,resetView,beginQuery,endQuery,pipeline,animating:()=>active()&&bursts.length>0};
+ return {modelInfo:()=>lastModel,render,active,resetView,beginQuery,endQuery,pipeline,animating:()=>active()&&bursts.length>0};
 })();

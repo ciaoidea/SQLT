@@ -52,7 +52,7 @@ class CodexMemoryClient:
             raise
     def turn(self,text,operation='auto',fresh=False):
         from live_dynamics import notify_chat_turn
-        graph_request_id=notify_chat_turn(self.namespace)
+        graph_request_id=notify_chat_turn(self.namespace,model=self.transport.model if self.transport else 'gpt-6.1-sol',engine='Codex app-server' if self.transport else 'Codex exec',effort='low')
         if operation not in ('auto','learn','query'):raise ValueError('Unknown operation')
         if not isinstance(text,str) or not text.strip() or len(text)>64000:raise ValueError('Use 1..64000 characters')
         instructions={

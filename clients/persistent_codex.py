@@ -186,7 +186,7 @@ class PersistentCodex:
             # No prompt content, database writes or MCP round trip is introduced.
             try:
                 from live_dynamics import notify_chat_turn
-                visual_turn=notify_chat_turn(self.namespace)
+                visual_turn=notify_chat_turn(self.namespace,model=self.model,engine='Codex app-server',effort='low')
             except ImportError:
                 pass
             from .memory_gate import retrieve

@@ -16,7 +16,7 @@ from urllib.parse import urlsplit, parse_qs
 ROOT = Path(__file__).resolve().parents[1]
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0,str(ROOT))
-from live_dynamics import LiveCollector
+from live_dynamics import LiveCollector, running_chat_models
 from query_flow import Flow, progress, _sink
 ROLES = ('entity', 'person', 'company', 'customer', 'provider', 'agent', 'patient',
          'recipient', 'branch', 'site', 'city', 'contact', 'collaborator', 'alias',
@@ -420,6 +420,8 @@ class Handler(BaseHTTPRequestHandler):
         url = urlsplit(self.path)
         files = {'/': 'map.html', '/map.html': 'map.html', '/map.js': 'map.js',
                  '/map.css': 'map.css', '/live.js': 'live.js', '/vendor/cytoscape.min.js': 'vendor/cytoscape.min.js'}
+        if url.path == '/api/model-status':
+            return self.send(200,json.dumps(running_chat_models(ROOT)).encode(),'application/json')
         if url.path == '/api/live':
             params=parse_qs(url.query)
             try:

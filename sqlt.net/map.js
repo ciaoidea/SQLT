@@ -5,6 +5,53 @@ if (location.protocol === 'file:') {
 const $ = id => document.getElementById(id);
 const apiBase='/';
 $('close-details').addEventListener('click',()=>document.body.classList.remove('inspecting'));
+let inspectedModel=null;
+function showCoreDetails(refresh=true){
+ const body=$('core-info-body');body.replaceChildren();const observed=window.CortexLive?.modelInfo();const model=observed?.name?observed:inspectedModel;
+ const dl=document.createElement('dl');body.appendChild(dl);
+ const fields=[['Model',model?.name||'Not reported yet'],['Engine',model?.engine||'Not reported'],['Reasoning effort',model?.effort||'Not reported'],['Client process',model?.producer?String(model.producer):'Not reported'],['Last observed',model?.seen||'No observed chat turn'],['Source',model?.source||'Live chat telemetry'],['Parameters / quantization','Not exposed by the model service'],['Memory','MariaDB · separate from model weights']];
+ for(const [label,value] of fields){text('dt',label,dl);text('dd',value,dl);}
+ text('p',model?.name?'Session settings reported by the chat client; not a server-side attestation.':'Reopen the Cortex terminal client, then send a message while Graph / Live is open to report the session model.',body);
+ text('p','Pulse and bridge are visual markers, not measured LLM activity.',body);
+ $('core-info').hidden=false;
+ if(refresh)fetch('api/model-status',{cache:'no-store'}).then(r=>{if(!r.ok)throw Error();return r.json();}).then(data=>{
+  if(data.sessions?.length===1){inspectedModel=data.sessions[0];if(!$('core-info').hidden)showCoreDetails(false);}
+  else if(data.sessions?.length>1&&!$('core-info').hidden){text('p','Multiple Cortex clients are running. Send a request with Live open to identify the active session.',$('core-info-body'));}
+ }).catch(()=>{});
+}
+$('close-core-info').onclick=()=>$('core-info').hidden=true;
+window.addEventListener('cortex-model-info',()=>{if(!$('core-info').hidden)showCoreDetails(false);});
+
+// Collapsing UI panels never clears the graph or changes live collection.
+function panelToggle(button,className){
+ $(button).addEventListener('click',()=>{
+  const collapsed=document.body.classList.toggle(className);
+  $(button).setAttribute('aria-expanded',String(!collapsed));
+ });
+}
+panelToggle('toggle-collections','collections-collapsed');
+panelToggle('toggle-query','query-collapsed');
+panelToggle('live-state','activity-collapsed');
+$('toggle-details').addEventListener('click',()=>document.body.classList.toggle('inspecting'));
+$('brain-fullscreen').addEventListener('click',async()=>{
+ try{
+  await document.querySelector('.canvas').requestFullscreen();
+ }catch(error){$('status').textContent='Fullscreen unavailable: '+error.message;}
+});
+document.addEventListener('fullscreenchange',()=>{
+ if(space)space.width($('space').clientWidth).height($('space').clientHeight);
+});
+
+new MutationObserver(()=>$('toggle-details').setAttribute('aria-expanded',String(document.body.classList.contains('inspecting')))).observe(document.body,{attributes:true,attributeFilter:['class']});
+let panelRestore=null;
+$('toggle-focus').addEventListener('click',()=>{
+ const classes=['collections-collapsed','query-collapsed','activity-collapsed'];
+ if(panelRestore){for(const [name,on] of Object.entries(panelRestore))document.body.classList.toggle(name,on);panelRestore=null;}
+ else{panelRestore=Object.fromEntries([...classes,'inspecting'].map(name=>[name,document.body.classList.contains(name)]));classes.forEach(name=>document.body.classList.add(name));document.body.classList.remove('inspecting');}
+ $('toggle-focus').setAttribute('aria-pressed',String(!!panelRestore));
+ for(const [id,name] of [['toggle-collections',classes[0]],['toggle-query',classes[1]],['live-state',classes[2]]])$(id).setAttribute('aria-expanded',String(!document.body.classList.contains(name)));
+});
+
 let currentCatalog=null,currentDataset='memory',browseSpec={dataset:'memory',filters:[],offset:0},lastData=null,viewMode='table',detailRequest=0;
 let graphSource='empty';
 let cy, selected = null, request = 0, space = null, rotating = true, pendingClarification = null;
@@ -283,6 +330,25 @@ function canvasSpace(container){
    }
    ctx.restore();
   }
+  // Open irregular network scaffold: no rings, tube walls or solid surface.
+  ctx.save();ctx.lineWidth=.65;
+  for(const side of [-1,1]){
+   const vertex=(level,strand)=>{
+    if(level===0)return project({x:0,y:0,z:0});
+    const t=level/7,spread=8+16*Math.sin(Math.PI*t);
+    const noise=(seed)=>Math.sin(seed*127.1+side*31.7)*.5+Math.sin(seed*53.3)*.5;
+    return project({x:side*(105*t+noise(level*8+strand)*4),y:-18*Math.sin(Math.PI*t)+noise(level*13+strand*7)*spread,z:35*Math.sin(Math.PI*t)+noise(level*19+strand*11+3)*spread});
+   };
+   for(let level=1;level<=7;level++)for(let strand=0;strand<5;strand++){
+    const a=vertex(level,strand),b=vertex(level-1,strand);
+    ctx.strokeStyle='rgba(224,160,177,.34)';ctx.beginPath();ctx.moveTo(b.x,b.y);ctx.lineTo(a.x,a.y);ctx.stroke();
+    if(level>1&&(level+strand)%2===0){
+     const c=vertex(level-1,(strand+2)%5);ctx.strokeStyle='rgba(224,160,177,.19)';ctx.beginPath();ctx.moveTo(c.x,c.y);ctx.lineTo(a.x,a.y);ctx.stroke();
+    }
+    ctx.fillStyle='rgba(238,175,193,.58)';ctx.beginPath();ctx.arc(a.x,a.y,1.15,0,Math.PI*2);ctx.fill();
+   }
+  }
+  ctx.restore();
   points=data.nodes.map(n=>{
    const p=project(n);
    return {n,...p,r:nodeRadius(n.aggregate_count)*p.perspective,opacity:Math.max(.3,Math.min(1,1-p.z/900))};
@@ -366,10 +432,20 @@ function canvasSpace(container){
   const corePulse=.5+.5*Math.sin(performance.now()*Math.PI/1500);
   const coreHalo=18+8*corePulse;
   const halo=ctx.createRadialGradient(core.x,core.y,0,core.x,core.y,coreHalo);
-  halo.addColorStop(0,'rgba(192,235,255,.8)');halo.addColorStop(.3,'rgba(108,194,255,.25)');halo.addColorStop(1,'rgba(108,194,255,0)');
+  halo.addColorStop(0,'rgba(245,184,201,.45)');halo.addColorStop(.3,'rgba(224,160,177,.13)');halo.addColorStop(1,'rgba(224,160,177,0)');
   ctx.fillStyle=halo;ctx.beginPath();ctx.arc(core.x,core.y,coreHalo,0,Math.PI*2);ctx.fill();
-  ctx.fillStyle='#e4f6ff';ctx.beginPath();ctx.arc(core.x,core.y,hovered===core.n.id?7:4.5+1.5*corePulse,0,Math.PI*2);ctx.fill();
-  ctx.font='10px system-ui';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle='#c7eaff';ctx.fillText('LLM Core',core.x,core.y+12);
+  const coreRadius=(hovered===core.n.id?11:8)+corePulse*2;
+  ctx.strokeStyle='rgba(245,184,201,.75)';ctx.lineWidth=.7;
+  const coreVertex=(row,col)=>{
+   const u=(col%7)*Math.PI*2/7,v=-Math.PI/2+row*Math.PI/5;
+   const radius=coreRadius*(1+.22*Math.sin(row*11.7+(col%7)*7.1));
+   return project({x:radius*Math.cos(v)*Math.cos(u),y:radius*Math.sin(v),z:radius*Math.cos(v)*Math.sin(u)});
+  };
+  for(let row=0;row<5;row++)for(let col=0;col<7;col++){
+   const a=coreVertex(row,col),b=coreVertex(row,col+1),c=coreVertex(row+1,col),d=coreVertex(row+1,col+1);
+   ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.lineTo(c.x,c.y);ctx.lineTo(a.x,a.y);ctx.moveTo(b.x,b.y);ctx.lineTo(d.x,d.y);ctx.lineTo(c.x,c.y);ctx.stroke();
+  }
+  ctx.font='10px system-ui';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle='#e0a0b1';ctx.fillText('LLM Core',core.x,core.y+16);
   points.push(core);
   dirty=!!window.CortexLive?.animating();
  }
@@ -389,8 +465,7 @@ function canvasSpace(container){
   hovered=null;$('hover-card').hidden=true;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;moved+=Math.abs(dx)+Math.abs(dy);if(drag.button===2){panX+=dx;panY+=dy;}else{angleY+=dx*.007;angleX+=dy*.007;}drag.x=e.clientX;drag.y=e.clientY;dirty=true;
  });
  canvas.addEventListener('pointerup',e=>{if(drag&&moved<5){const hit=hitAt(e);if(hit){if(hit.n.kind==='llm-core'){
-    document.body.classList.add('inspecting');$('details').replaceChildren();
-    text('h1','LLM Core',$('details'));text('p','Language-model interface for interpretation, planning and generation. Memory remains in MariaDB. This visual landmark does not indicate measured model activity.',$('details'));
+    showCoreDetails();
    }else inspect(cy.getElementById(hit.n.id));}}drag=null;});
  canvas.addEventListener('wheel',e=>{e.preventDefault();zoom=Math.max(.15,Math.min(6,zoom*Math.exp(-e.deltaY*.001)));dirty=true;},{passive:false});
  const api={

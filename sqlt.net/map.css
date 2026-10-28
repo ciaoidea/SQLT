@@ -61,3 +61,19 @@ body[data-view="table"] .graph-dynamics{display:none}.graph-dynamics input{accen
 .graph-dynamics span{display:inline-flex;gap:5px;align-items:center;white-space:nowrap}
 
 #skill-state{position:absolute;right:16px;bottom:48px;z-index:4;max-width:290px;padding:10px 12px;border:1px solid #447d77;border-radius:7px;background:rgba(3,18,23,.9);color:#b6e7da;font:11px system-ui;pointer-events:none}#skill-state[hidden]{display:none}#skill-state strong,#skill-state span,#skill-state small{display:block}#skill-state span{margin:5px 0}#skill-state small{color:#829a9e}
+
+/* Panel visibility only: data, live subscription and query state are retained. */
+#panel-switches{display:flex;gap:5px;margin-left:auto;margin-right:16px}#panel-switches button{font-size:10px;padding:5px 8px;background:#101d30;color:#b7cce5;border-color:#2b415d}
+body.collections-collapsed main{grid-template-columns:minmax(0,1fr)}body.collections-collapsed #navigator{display:none}
+body.query-collapsed .toolbar,body.query-collapsed #filter-bar,body.query-collapsed #active-filters,body.query-collapsed .query-console{display:none}
+#live-panel{pointer-events:auto}#live-state{display:block;text-align:left;width:100%;padding:0;border:0;background:transparent;color:inherit;font:600 11px/1.5 system-ui;cursor:pointer}
+body.activity-collapsed #live-panel p,body.activity-collapsed #live-events,body.activity-collapsed #live-metrics{display:none}
+body.activity-collapsed #live-panel{max-width:260px;padding:7px 10px}
+@media(max-width:750px){#panel-switches{margin-right:0}#panel-switches button{font-size:9px;padding:4px}header{padding:0 10px}.access-label{display:none}}
+
+/* Native browser fullscreen targets only the 3D viewport. Escape restores it. */
+.canvas:fullscreen{width:100vw;height:100vh;min-height:0;background:#000}
+.canvas:fullscreen>:not(#space){display:none!important}
+.canvas:fullscreen #space{visibility:visible;position:absolute;inset:0}
+
+#core-info{position:absolute;right:16px;bottom:16px;z-index:10;width:min(340px,calc(100% - 32px));max-height:80%;overflow:auto;padding:15px;background:rgba(13,14,25,.96);border:1px solid #936878;border-radius:9px;color:#decbd6;font:11px/1.5 system-ui}.core-info-head{display:flex;align-items:center;justify-content:space-between}.core-info-head button{padding:1px 7px;font-size:18px;background:transparent;color:#e0a0b1;border:0}#core-info dt{color:#9fa2b3;margin-top:9px}#core-info dd{color:#ead9e0;margin:1px 0;overflow-wrap:anywhere}#core-info p{font-size:10px;color:#a7a1ae}.canvas:fullscreen>#core-info:not([hidden]){display:block!important}

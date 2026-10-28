@@ -64,14 +64,17 @@ def emit(namespace, payload):
     except (OSError, ValueError, TypeError):
         pass
 
-def notify_chat_turn(namespace='main'):
+def notify_chat_turn(namespace='main', *, model=None, engine=None, effort=None):
     """An actual application user-turn boundary, never inferred from tool timing."""
     try:
         if watching(namespace):
             request_id=uuid.uuid4().hex[:16]
             emit(namespace,{'operation':'chat_turn','phase':'start',
                             'call':request_id,'producer':os.getpid(),
-                            'origin':'client','records':[],'count':0,'duration_ms':0})
+                            'origin':'client','records':[],'count':0,'duration_ms':0,
+                            'engine':engine if engine in ('Codex app-server','Codex exec') else None,
+                            'effort':effort if effort in ('low','medium','high','xhigh') else None,
+                            'model':model if isinstance(model,str) and re.fullmatch(r'[A-Za-z0-9_.:/-]{1,120}',model) else None})
             return request_id
     except Exception:
         pass
@@ -254,6 +257,11 @@ class LiveCollector:
                       'origin':event.get('origin') if event.get('origin') in ('viewer','gate') else 'client',
                       'duration_ms':max(0,min(3600000,float(event.get('duration_ms',0)))),
                       'count':max(0,int(event.get('count',0))),'records':clean}
+                if item['operation']=='chat_turn':
+                    item['engine']=event.get('engine') if event.get('engine') in ('Codex app-server','Codex exec') else None
+                    item['effort']=event.get('effort') if event.get('effort') in ('low','medium','high','xhigh') else None
+                    model=event.get('model')
+                    item['model']=model if isinstance(model,str) and re.fullmatch(r'[A-Za-z0-9_.:/-]{1,120}',model) else None
                 if item['operation'] in ('memory_selection','memory_focus'):
                     ids=event.get('selected_ids',[])
                     item['selected_ids']=[i for i in ids[:128] if type(i) is int and i>0] if isinstance(ids,list) else []
@@ -305,3 +313,48 @@ def trace_skill_execution(namespace='main', *, llm_bypassed=False):
         raise
     else:
         if active:emit(namespace,{**base,'phase':'complete','duration_ms':(time.monotonic()-started)*1000})
+
+
+def running_chat_models(root=ROOT):
+    """Read launch metadata only, on demand. Never read prompts/auth/environment.
+
+    A configured model identifier is not proof of a server-side resolved version.
+    Restrict discovery to this Unix user; report unverified installation scope
+    when /proc permissions prevent reading the working directory.
+    """
+    import ast
+    default=None
+    try:
+        tree=ast.parse((root/'clients'/'shell_chat.py').read_text())
+        for node in ast.walk(tree):
+            if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and node.func.attr=='add_argument' and node.args and isinstance(node.args[0],ast.Constant) and node.args[0].value=='--model':
+                default=next((k.value.value for k in node.keywords if k.arg=='default' and isinstance(k.value,ast.Constant)),None)
+    except (OSError,SyntaxError):pass
+    sessions=[]
+    for proc in Path('/proc').iterdir():
+        if not proc.name.isdigit():continue
+        try:
+            if proc.stat().st_uid!=os.getuid():continue
+            installation_verified=False
+            try:
+                if (proc/'cwd').resolve(strict=True)!=root.resolve():continue
+                installation_verified=True
+            except OSError:pass
+            args=(proc/'cmdline').read_bytes().decode().split('\0')
+            if 'clients.shell_chat' not in args:continue
+            model=default
+            for index,arg in enumerate(args):
+                if arg=='--model' and index+1<len(args):model=args[index+1]
+                elif arg.startswith('--model='):model=arg.split('=',1)[1]
+            if not isinstance(model,str) or not re.fullmatch(r'[A-Za-z0-9_.:/-]{1,120}',model):continue
+            engine=None
+            try:
+                for child in (proc/'task'/proc.name/'children').read_text().split():
+                    child_args=(Path('/proc')/child/'cmdline').read_bytes().decode().split('\0')
+                    if 'app-server' in child_args:engine='Codex app-server';break
+            except OSError:pass
+            sessions.append({'name':model,'engine':engine,'effort':None,'producer':int(proc.name),
+                'source':('Running client launch configuration; ' if installation_verified else 'Same-user running client; installation scope unverified; ')+('explicit --model' if any(a=='--model' or a.startswith('--model=') for a in args) else 'default model from installed launcher')+'; not server-side attestation',
+                'seen':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())})
+        except (OSError,ValueError,UnicodeError):continue
+    return {'sessions':sessions[:16],'scope':'Same-user process metadata; installation checked when permissions allow'}
