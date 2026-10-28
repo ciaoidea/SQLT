@@ -359,9 +359,21 @@ function canvasSpace(container){
    const x=chosen.x+tw/2,y=chosen.y+th/2;
    ctx.strokeStyle='#02040b';ctx.lineWidth=4;ctx.lineJoin='round';ctx.strokeText(label,x,y);ctx.fillStyle=p.n.id===hovered?'#ffffff':p.n.kind==='event'?'#a8b4c8':'#d2dbea';ctx.fillText(label,x,y);
   }
-  ctx.globalAlpha=1;window.CortexLive?.render(ctx,points,w,h,projectedRoutes);dirty=!!window.CortexLive?.animating();
+  ctx.globalAlpha=1;window.CortexLive?.render(ctx,points,w,h,projectedRoutes);
+  // UI landmark only: never a stored memory node or invented neural connection.
+  const corePosition=project({x:0,y:0,z:0});
+  const core={n:{id:'ui-llm-core',label:'LLM Core',kind:'llm-core'},...corePosition,r:6};
+  const corePulse=.5+.5*Math.sin(performance.now()*Math.PI/1500);
+  const coreHalo=18+8*corePulse;
+  const halo=ctx.createRadialGradient(core.x,core.y,0,core.x,core.y,coreHalo);
+  halo.addColorStop(0,'rgba(192,235,255,.8)');halo.addColorStop(.3,'rgba(108,194,255,.25)');halo.addColorStop(1,'rgba(108,194,255,0)');
+  ctx.fillStyle=halo;ctx.beginPath();ctx.arc(core.x,core.y,coreHalo,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#e4f6ff';ctx.beginPath();ctx.arc(core.x,core.y,hovered===core.n.id?7:4.5+1.5*corePulse,0,Math.PI*2);ctx.fill();
+  ctx.font='10px system-ui';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle='#c7eaff';ctx.fillText('LLM Core',core.x,core.y+12);
+  points.push(core);
+  dirty=!!window.CortexLive?.animating();
  }
- function frame(t){if(!running)return;if(t-last>32){last=t;if(controls.autoRotate && !hovered && !drag){angleZ+=.006*controls.autoRotateSpeed;dirty=true;}if(dirty || window.CortexLive?.animating())draw();}raf=requestAnimationFrame(frame);}
+ function frame(t){if(!running)return;if(t-last>32){last=t;if(controls.autoRotate && !hovered && !drag){angleZ+=.006*controls.autoRotateSpeed;dirty=true;}if(dirty || window.CortexLive?.animating() || (!document.hidden && document.body.dataset.view==='graph'))draw();}raf=requestAnimationFrame(frame);}
  function size(){canvas.width=w;canvas.height=h;canvas.style.width=w+'px';canvas.style.height=h+'px';dirty=true;}
  canvas.addEventListener('contextmenu',e=>e.preventDefault());
  canvas.addEventListener('pointerdown',e=>{drag={x:e.clientX,y:e.clientY,button:e.button};moved=0;canvas.setPointerCapture(e.pointerId);});
@@ -370,13 +382,16 @@ function canvasSpace(container){
  canvas.addEventListener('pointermove',e=>{
   if(!drag){const hit=hitAt(e);hovered=hit?hit.n.id:null;dirty=true;canvas.style.cursor=hit?'pointer':'grab';
    const card=$('hover-card');card.hidden=!hit;
-   if(hit){$('hover-title').textContent=hit.n.label;$('hover-description').textContent=description(hit.n);
+   if(hit){$('hover-title').textContent=hit.n.label;$('hover-description').textContent=hit.n.kind==='llm-core'?'Language-model interface: interpretation, planning and generation. This marker does not indicate measured model activity.':description(hit.n);
     const rect=container.getBoundingClientRect();card.style.left=Math.max(8,Math.min(e.clientX-rect.left+18,w-340))+'px';card.style.top=Math.max(8,Math.min(e.clientY-rect.top+18,h-card.offsetHeight-12))+'px';}
    return;
   }
   hovered=null;$('hover-card').hidden=true;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;moved+=Math.abs(dx)+Math.abs(dy);if(drag.button===2){panX+=dx;panY+=dy;}else{angleY+=dx*.007;angleX+=dy*.007;}drag.x=e.clientX;drag.y=e.clientY;dirty=true;
  });
- canvas.addEventListener('pointerup',e=>{if(drag&&moved<5){const hit=hitAt(e);if(hit)inspect(cy.getElementById(hit.n.id));}drag=null;});
+ canvas.addEventListener('pointerup',e=>{if(drag&&moved<5){const hit=hitAt(e);if(hit){if(hit.n.kind==='llm-core'){
+    document.body.classList.add('inspecting');$('details').replaceChildren();
+    text('h1','LLM Core',$('details'));text('p','Language-model interface for interpretation, planning and generation. Memory remains in MariaDB. This visual landmark does not indicate measured model activity.',$('details'));
+   }else inspect(cy.getElementById(hit.n.id));}}drag=null;});
  canvas.addEventListener('wheel',e=>{e.preventDefault();zoom=Math.max(.15,Math.min(6,zoom*Math.exp(-e.deltaY*.001)));dirty=true;},{passive:false});
  const api={
   graphData(value){if(!value)return data;hovered=null;$('hover-card').hidden=true;const nodes=constellation(value.nodes,value.links).map(n=>insideBrain(n));data={nodes,links:brainJoinRoutes(nodes,value.links)};dirty=true;return api;},
