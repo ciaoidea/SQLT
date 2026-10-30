@@ -537,7 +537,9 @@ def natural_memory_context(query: str, namespace: str='main', graph_turn: bool=F
     # Explicit per-request opt-in from the host, never infer turns from timing.
     request_id=notify_chat_turn(namespace,model=graph_model,engine='Unsloth MCP') if graph_turn else None
     result=natural_context(query,namespace)
-    if request_id:notify_context_focus(namespace,request_id,result['candidates'])
+    if request_id:
+        notify_context_focus(namespace,request_id,result['candidates'])
+        result['live_graph_request_id']=request_id
     return result
 
 @mcp.tool(annotations=READ)

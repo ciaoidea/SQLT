@@ -79,7 +79,9 @@ def main():
         value['namespace']=args.namespace or value.get('namespace','main')
         value['enabled']=not args.uninstall
         if args.retrieval_tool:value['retrieval_tool']=args.retrieval_tool
-        if args.read_answer_only is not None:value['read_answer_only']=args.read_answer_only
+        if args.read_answer_only is not None:
+            value['read_answer_only']=args.read_answer_only
+            value['explore']=not args.read_answer_only
         if args.always_retrieve is not None:value['always_retrieve']=args.always_retrieve
         config.parent.mkdir(parents=True,exist_ok=True)
         config.write_text(json.dumps(value,indent=2)+'\n');config.chmod(0o600)

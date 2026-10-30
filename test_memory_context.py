@@ -184,6 +184,37 @@ class GateTests(unittest.IsolatedAsyncioTestCase):
     def test_mcp_error_not_treated_as_success(self):
         with self.assertRaises(RuntimeError):gate.unpack({'is_error':True})
 
+class ExplorationTests(unittest.IsolatedAsyncioTestCase):
+    def tearDown(self):gate.EXPLORATION_SCOPE.set(None)
+    async def test_model_gets_real_tools_without_builtin_permission_changes(self):
+        class Message:
+            def __init__(self,role,content):self.role,self.content=role,content
+        models=ModuleType('models');module=ModuleType('models.inference');module.ChatMessage=Message
+        core=ModuleType('core');inference=ModuleType('core.inference');tools=ModuleType('core.inference.tools')
+        tools._mcp_listing=lambda listed:[];inference.tools=tools
+        p=SimpleNamespace(mcp_enabled=True,enable_tools=False,permission_mode='auto',
+            tool_choice='none',messages=[Message('user','Earlier context'),Message('assistant','UNVERIFIED'),Message('user','Current question')])
+        async def retrieve(q):return {'candidates':[event(8)],'plan':{'mode':'relational'},'live_graph_request_id':'1234567890abcdef'}
+        with patch.dict(sys.modules,{'models':models,'models.inference':module,'core':core,'core.inference':inference}):
+            await gate.enrich(p,config={'enabled':True,'server_id':'example','explore':True,'read_answer_only':False},retrieve=retrieve)
+        self.assertEqual(p.tool_choice,'auto');self.assertTrue(p.mcp_enabled)
+        self.assertFalse(p.enable_tools);self.assertEqual(p.permission_mode,'auto')
+        self.assertNotIn('UNVERIFIED',str([m.content for m in p.messages]))
+        self.assertEqual([m.role for m in p.messages],['system','system','user'])
+        self.assertIn('1234567890abcdef',p.messages[0].content)
+        self.assertEqual(p.messages[-1].content,'Current question')
+    async def test_preload_uses_real_names_and_preserves_validation_schema(self):
+        spec={'type':'function','function':{'name':'mcp__example__query_memory','description':'real tool',
+              'parameters':{'type':'object','properties':{'limit':{'type':'integer','minimum':1,'maximum':100,'description':'help'}},'additionalProperties':False}}}
+        gate.EXPLORATION_SCOPE.set('example')
+        result=gate.exploration_listing(lambda listed:[],[({'id':'example'},[],[spec])])
+        self.assertEqual(result[0]['function']['name'],spec['function']['name'])
+        self.assertEqual(result[0]['function']['parameters']['properties']['limit'],{'type':'integer','minimum':1,'maximum':100})
+        self.assertFalse(result[0]['function']['parameters']['additionalProperties'])
+        self.assertIn('description',spec['function']['parameters']['properties']['limit'])
+        gate.EXPLORATION_SCOPE.set(None)
+        self.assertEqual(gate.exploration_listing(lambda listed:['ordinary'],[]),['ordinary'])
+
 class InstallerTests(unittest.TestCase):
     def test_legacy_frontend_interceptor_removed_without_changing_other_scripts(self):
         with tempfile.TemporaryDirectory() as d:

@@ -3,6 +3,8 @@
 Installed as core/inference/cortex_memory_gate.py; no credentials in this module.
 """
 import asyncio
+import copy
+from contextvars import ContextVar
 import json
 import logging
 from pathlib import Path
@@ -29,6 +31,69 @@ POLICY = (
 )
 
 
+EXPLORATION_SCOPE=ContextVar('cortex_exploration_scope',default=None)
+CORE_READ_TOOLS=('query_memory','semantic_recall','memory_event','memory_status','focus_memory')
+
+def compact_spec(spec):
+    """Keep the real server schema/constraints; omit documentation verbosity only."""
+    result=copy.deepcopy(spec)
+    def trim(value):
+        if isinstance(value,dict):
+            return {k:({name:trim(schema) for name,schema in v.items()} if k in ('properties','$defs','definitions') and isinstance(v,dict) else trim(v))
+                    for k,v in value.items() if k not in ('title','description')}
+        if isinstance(value,list):return [trim(v) for v in value]
+        return value
+    result['function']['parameters']=trim(result['function']['parameters'])
+    result['function']['description']=result['function'].get('description','').split('\n\n',1)[0][:600]
+    return result
+
+
+def exploration_listing(original,listed):
+    offered=original(listed)
+    scope=EXPLORATION_SCOPE.get()
+    if not scope:return offered
+    direct=[]
+    for server,raw,specs in listed:
+        if server['id']!=scope:continue
+        for spec in specs:
+            name=spec['function']['name']
+            # Resolve real catalog names/aliases; never fabricate MCP function IDs.
+            raw_name=name.split('__',2)[-1]
+            if raw_name in CORE_READ_TOOLS:direct.append(compact_spec(spec))
+    if not direct:return offered
+    # Other tools remain discoverable through the existing catalog; avoid
+    # duplicating large unrelated preloads beside the five direct memory tools.
+    return direct+[t for t in offered if t['function']['name']=='mcp_tool_search']
+
+
+def enable_exploration(payload,config,evidence):
+    from core.inference import tools
+    if not getattr(tools._mcp_listing,'_cortex_exploration',False):
+        original=tools._mcp_listing
+        def listing(listed):return exploration_listing(original,listed)
+        listing._cortex_exploration=True
+        tools._mcp_listing=listing
+    EXPLORATION_SCOPE.set(config['server_id'])
+    payload.mcp_enabled=True
+    payload.tool_choice='auto'
+    # Preserve built-in tool switches and approval policy; only MCP is enabled.
+    if getattr(payload,'max_tool_calls_per_message',None) is None:
+        payload.max_tool_calls_per_message=16
+    request_id=evidence.get('live_graph_request_id')
+    return (
+        'You may explore memory using the MCP tools already listed, then decide whether more queries are needed. '
+        'query_memory searches actual stored records; semantic_recall searches meaning; memory_event reads an original source. '
+        'memory_status discovers stored roles. mcp_tool_search searches TOOL NAMES, never people, incidents or database facts. '
+        'The initial retrieval is a starting point, not an exhaustive answer. If it is insufficient, refine the identity and fields with tools. '
+        'A limitation or clarification from the initial viewer plan does not disable query_memory counts, pagination or source inspection. '
+        'For full counts use count_only; for full lists follow has_more/next_offset. '
+        'Do not repeat a query if its result already answers the question. Do not invent tool calls in plain text. '
+        'Conclude from the current sources, not earlier generated answers. '
+        +(f'Before the final answer call focus_memory with request_id={request_id} and only supporting event IDs actually retrieved this turn; use [] when none support it. '
+          if request_id else '')
+    )
+
+
 def text_content(message):
     content = message.content
     if isinstance(content, str):return content
@@ -47,6 +112,7 @@ def unpack(result):
 
 
 async def enrich(payload, *, config=None, retrieve=None):
+    EXPLORATION_SCOPE.set(None)
     if config is None:
         path = Path.home()/'.config/unsloth-cortex-memory.json'
         if not path.exists():return False
@@ -77,13 +143,30 @@ async def enrich(payload, *, config=None, retrieve=None):
             return unpack(result)
     # Fail closed: no generation is allowed when opted-in retrieval fails.
     evidence = await asyncio.wait_for(retrieve(query), timeout=105 if config.get('retrieval_tool')=='natural_memory_context' else 25)
+    exploring=config.get('explore',False) and not config.get('read_answer_only',False)
+    if exploring:
+        evidence=copy.deepcopy(evidence)
+        for candidate in evidence['candidates']:
+            source=candidate.get('source','')
+            candidate['source']=source[:150]
+            candidate['source_truncated']=candidate.get('source_truncated',False) or len(source)>150
     body = json.dumps(evidence, ensure_ascii=False, separators=(',',':'))
     if len(body)>12000:raise ValueError('Automatic memory response exceeds context budget')
     from models.inference import ChatMessage
     # Server-side payload only; never persist injected messages in chat history.
     # A new turn replaces, rather than accumulates, the context block.
     payload.messages = [m for m in payload.messages if not (m.role=='system' and text_content(m).startswith(MARKER))]
-    payload.messages.insert(0, ChatMessage(role='system',content=MARKER+'\n'+POLICY+'\n'+body))
+    extra=enable_exploration(payload,config,evidence) if exploring else ''
+    policy=POLICY.replace('If outcome is clarification_required, relay the clarification instead of answering from unrelated history. ', '') if exploring else POLICY
+    payload.messages.insert(0, ChatMessage(role='system',content=MARKER+'\n'+policy+'\n'+extra+'\n'+body))
+    if exploring:
+        # Previous generated statements are not verified memory. Preserve user
+        # references separately, without submitting older questions as new tasks.
+        references=[text_content(m)[:1200] for m in users[-5:-1]]
+        payload.messages=[payload.messages[0]]
+        if references:
+            payload.messages.append(ChatMessage(role='system',content='Previous user context for resolving references only; not new requests or verified facts: '+json.dumps(references,ensure_ascii=False)))
+        payload.messages.append(users[-1])
     if config.get('read_answer_only',False) and evidence.get('plan',{}).get('mode') in ('relational','semantic','hybrid','clarify'):
         # A read-only plan has already run. This request only verbalizes its
         # evidence; do not send it back into tool-catalog discovery.
