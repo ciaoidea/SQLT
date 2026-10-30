@@ -126,6 +126,7 @@ class PlannerResponsivenessTests(unittest.IsolatedAsyncioTestCase):
   from planner import PlanCache
   bridge.plan_cache=PlanCache()
   bridge._catalog=AsyncMock(return_value={});bridge._natural=AsyncMock(return_value={'done':True})
+  bridge._call=AsyncMock(return_value={'events':[]})
   bridge._table_unlocked=AsyncMock(return_value={'records':[]});started=threading.Event();release=threading.Event()
   def slow_plan(*args):started.set();release.wait(3);return {},0
   with patch('server.plan',side_effect=slow_plan):

@@ -228,3 +228,29 @@ Performance measurements distinguish memory retrieval from complete answers.
 Removing a preliminary planner and subprocess startups reduces host-side recall;
 model generation, tool round trips and optional graph focus still add latency.
 A complete cold answer must not be compared to a retrieval-only measurement.
+
+## Identity discovery before choosing a frame
+
+The NLQ backend now calls read-only `literal_memory_candidates` before planning.
+It discovers literal word matches across actual stored values, supplying their
+frames, roles and bounded source excerpts as per-question planning evidence.
+Person information and confirmed alias corrections may live in case notes or
+conversation concepts, rather than a contact profile or a populated alias field.
+The planner must use the observed storage shape instead of assuming a profile.
+
+This is generic lexical discovery, not a grammar parser, fuzzy name expansion,
+automatic alias creation or a database migration. An unknown short name must not
+be expanded into a longer similar-looking branch. Clarification is appropriate
+when identity evidence is missing. A model may still overgeneralize an alternative
+spelling in the question; an inferred alias is not automatically saved or verified.
+
+Per-question evidence is separate from the cached shared catalog and participates
+in the plan-cache fingerprint. Newly changed or removed identity evidence changes
+the key; plans are not reused against different discovery evidence. SQL data is
+still read fresh. Normal frontier-client hybrid retrieval retains its prior
+strict-anchor behavior; this discovery step applies to the optional NLQ path.
+
+In Unsloth's opt-in read-answer-only mode, a clarification decision also suppresses
+further tool-catalog discovery: the model should ask the requested clarification,
+not search for a tool whose name resembles the unknown entity. This is a read
+workflow; automatic write/learning behavior is not validated by these tests.

@@ -83,7 +83,7 @@ async def enrich(payload, *, config=None, retrieve=None):
     # A new turn replaces, rather than accumulates, the context block.
     payload.messages = [m for m in payload.messages if not (m.role=='system' and text_content(m).startswith(MARKER))]
     payload.messages.insert(0, ChatMessage(role='system',content=MARKER+'\n'+POLICY+'\n'+body))
-    if config.get('read_answer_only',False) and evidence.get('plan',{}).get('mode') in ('relational','semantic','hybrid'):
+    if config.get('read_answer_only',False) and evidence.get('plan',{}).get('mode') in ('relational','semantic','hybrid','clarify'):
         # A read-only plan has already run. This request only verbalizes its
         # evidence; do not send it back into tool-catalog discovery.
         payload.tool_choice='none'

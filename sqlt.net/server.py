@@ -185,7 +185,7 @@ class MemoryBridge:
             self.ready.set()
 
     async def _call(self, name, args):
-        if name not in ('query_memory','semantic_recall','memory_status','apfc_browse','apfc_case','apfc_status','memory_event'):
+        if name not in ('query_memory','semantic_recall','literal_memory_candidates','memory_status','apfc_browse','apfc_case','apfc_status','memory_event'):
             raise ValueError('Read-only tool boundary')
         if name in ('query_memory','semantic_recall','apfc_browse'):
             args = {**args, 'include_sql': True}
@@ -293,7 +293,11 @@ class MemoryBridge:
         if mode=='natural':
             progress('planning')
             started=time.perf_counter()
-            async with self.lock:catalog=await self._catalog()
+            async with self.lock:
+                catalog=await self._catalog()
+                hints=await self._call('literal_memory_candidates',{'query':query})
+                # Per-question evidence, not a mutation of the shared schema catalog.
+                catalog={**catalog,'literal_query_evidence':hints.get('events',[])}
             catalog_seconds=time.perf_counter()-started
             queued=time.perf_counter()
             async with self.planning_lock:

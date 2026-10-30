@@ -535,4 +535,20 @@ def natural_memory_context(query: str, namespace: str='main') -> dict:
     from nlq_context import natural_context
     return natural_context(query,namespace)
 
+@mcp.tool(annotations=READ)
+def literal_memory_candidates(query: str, namespace: str='main') -> dict:
+    """Discover literal stored values across frames before choosing a query plan.
+
+    Word matches are discovery evidence, not proof of identity or exhaustive results.
+    Does not guess aliases, use spelling similarity, or modify memory.
+    """
+    if not isinstance(query,str) or not 1<=len(query)<=8000:
+        raise ValueError('Use 1..8000 query characters')
+    from memory_context import lexical_candidates
+    with memory(namespace) as m:result=lexical_candidates(m,query,limit=6,exact_anchor_required=False)
+    return {'events':[dict(event_id=e['event_id'],frame=e['frame'],roles=e['roles'],
+                          source=e.get('source','')[:650],time=e.get('time',''),negated=e['negated'])
+                      for e in result['events']],
+            'scope':'Literal word matches across stored values, not semantic identity equivalence. Do not expand an unknown name to a similar-looking branch or person.'}
+
 if __name__=='__main__':mcp.run(transport='stdio')

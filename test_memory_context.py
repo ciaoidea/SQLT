@@ -69,6 +69,24 @@ class LexicalTests(unittest.TestCase):
         self.assertEqual(r['events'],[])
         self.assertFalse(r['complete'])
 
+class LiteralDiscoveryTests(unittest.TestCase):
+    def test_partial_person_name_is_discovered_without_guessing_a_frame(self):
+        from memory_context import lexical_candidates
+        class Cursor:
+            def __enter__(self):return self
+            def __exit__(self,*args):pass
+            def execute(self,sql,params):
+                if 'SELECT b.event_id' in sql:
+                    self.rows=[(1,0)] if params[0]=='surname' else []
+                else:
+                    self.rows=[(1,'case_notes',False,json.dumps([{'role':'person','value':'Example Surname'}]),'original source','2000-01-01','')]
+            def fetchall(self):return self.rows
+        memory=SimpleNamespace(namespace='isolated',c=SimpleNamespace(cursor=lambda:Cursor()))
+        found=lexical_candidates(memory,'who is Surname',exact_anchor_required=False)
+        self.assertEqual(found['events'][0]['frame'],'case_notes')
+        # Existing strict-anchor hybrid behavior is unchanged.
+        self.assertEqual(lexical_candidates(memory,'who is Surname')['events'],[])
+
 class GateTests(unittest.IsolatedAsyncioTestCase):
     async def test_gate_disabled_respects_chat_setting(self):
         async def fail(q):raise AssertionError('must not retrieve')

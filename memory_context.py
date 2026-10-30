@@ -8,7 +8,7 @@ import re
 import time
 
 
-def lexical_candidates(memory, query, limit=8):
+def lexical_candidates(memory, query, limit=8, exact_anchor_required=True):
     tokens = list(dict.fromkeys(re.findall(r'[^\W_]+', query.casefold(), re.UNICODE)))
     tokens = [t for t in tokens if 2 <= len(t) <= 100][:24]
     hits = {}
@@ -43,7 +43,7 @@ def lexical_candidates(memory, query, limit=8):
             for token, rows in exact_terms:
                 for ident, exact in rows:
                     hits[ident] = hits.get(ident, 0.) + 1 / math.sqrt(len(rows))
-        else:
+        elif exact_anchor_required:
             hits = {}  # Let the semantic branch handle paraphrases.
         ids = sorted(hits, key=lambda i: (-hits[i], i))[:limit]
         events = []
