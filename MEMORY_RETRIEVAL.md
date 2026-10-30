@@ -114,3 +114,18 @@ namespace propagation, and installer compatibility/idempotency/removal. Existing
 memory-gate tests cover APFC case-state retention and prevention of generation
 when retrieval fails. Live read-only tests used the remote Unsloth MCP client and
 a running small local model; private questions and results are not distributed.
+
+### Live Graph with an isolated HTTP service
+
+The viewer uses an owner-only UNIX datagram directory under
+`/tmp/cortex-live-<UID>`. A systemd MCP service with `PrivateTmp=true` cannot see
+that directory by default: memory queries succeed but Graph receives no events.
+Share only that directory using `BindPaths=/tmp/cortex-live-<UID>` and create it
+at boot with a systemd-tmpfiles rule owned by the same installation user, mode
+0700. Keep the rest of the service's private temporary filesystem isolated.
+The viewer and MCP service must use the same installation and OS UID.
+
+This restores observed tool bursts while Graph/Live is visible. It does not by
+itself provide a remote application's turn boundary or model-selected final
+`focus_memory` event. Those are separate from the transport and are necessary
+for a trustworthy stable graph of the evidence actually used in an answer.
