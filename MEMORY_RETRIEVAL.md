@@ -254,3 +254,6 @@ In Unsloth's opt-in read-answer-only mode, a clarification decision also suppres
 further tool-catalog discovery: the model should ask the requested clarification,
 not search for a tool whose name resembles the unknown entity. This is a read
 workflow; automatic write/learning behavior is not validated by these tests.
+
+### Remote Unsloth live graph
+The natural-memory adapter explicitly starts a graph turn before retrieval and retains the actual injected context after retrieval. This uses existing bounded, viewer-leased telemetry: no extra model call, database write or stored event log. The stable graph is labelled **Prepared memory context**, not model-selected supporting evidence. It does not attest which records the generator used or validate their relevance. Each new host turn clears the preceding graph, including empty/clarification results. Cortex native model-selected focus remains distinct.

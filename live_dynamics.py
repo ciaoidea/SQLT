@@ -72,7 +72,7 @@ def notify_chat_turn(namespace='main', *, model=None, engine=None, effort=None):
             emit(namespace,{'operation':'chat_turn','phase':'start',
                             'call':request_id,'producer':os.getpid(),
                             'origin':'client','records':[],'count':0,'duration_ms':0,
-                            'engine':engine if engine in ('Codex app-server','Codex exec') else None,
+                            'engine':engine if engine in ('Codex app-server','Codex exec','Unsloth MCP') else None,
                             'effort':effort if effort in ('low','medium','high','xhigh') else None,
                             'model':model if isinstance(model,str) and re.fullmatch(r'[A-Za-z0-9_.:/-]{1,120}',model) else None})
             return request_id
@@ -106,6 +106,17 @@ def notify_memory_selection(namespace, candidates):
             emit(namespace,{**base,'records':records[start:start+2]})
     except Exception:
         pass
+
+def notify_context_focus(namespace, request_id, candidates):
+    """Retain the actual injected context, NOT model-selected answer evidence."""
+    if not request_id or not watching(namespace):return
+    notify_memory_selection(namespace,candidates)
+    ids=list(dict.fromkeys(e['event_id'] for e in candidates
+                          if type(e.get('event_id')) is int and e['event_id']>0))[:128]
+    emit(namespace,{'operation':'context_focus','phase':'complete','request_id':request_id,
+                    'call':uuid.uuid4().hex[:16],'producer':os.getpid(),'origin':'gate',
+                    'records':[],'count':len(ids),'selected_ids':ids,'duration_ms':0})
+
 
 def snapshot(result):
     if not isinstance(result, dict):
@@ -264,14 +275,14 @@ class LiveCollector:
                     if event.get('status') not in ('running','completed','failed'):continue
                     item.update(label=label,category=event['category'],status=event['status'],request_id=str(event.get('request_id',''))[:32])
                 if item['operation']=='chat_turn':
-                    item['engine']=event.get('engine') if event.get('engine') in ('Codex app-server','Codex exec') else None
+                    item['engine']=event.get('engine') if event.get('engine') in ('Codex app-server','Codex exec','Unsloth MCP') else None
                     item['effort']=event.get('effort') if event.get('effort') in ('low','medium','high','xhigh') else None
                     model=event.get('model')
                     item['model']=model if isinstance(model,str) and re.fullmatch(r'[A-Za-z0-9_.:/-]{1,120}',model) else None
-                if item['operation'] in ('memory_selection','memory_focus'):
+                if item['operation'] in ('memory_selection','memory_focus','context_focus'):
                     ids=event.get('selected_ids',[])
                     item['selected_ids']=[i for i in ids[:128] if type(i) is int and i>0] if isinstance(ids,list) else []
-                if item['operation']=='memory_focus':
+                if item['operation'] in ('memory_focus','context_focus'):
                     item['request_id']=str(event.get('request_id',''))[:32]
                 with self.lock:
                     if self.channel is not channel: return

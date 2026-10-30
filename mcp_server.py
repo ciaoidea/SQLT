@@ -526,14 +526,19 @@ async def memory_context(query: str, namespace: str='main') -> dict:
 
 @mcp.tool(annotations=READ)
 @observed
-def natural_memory_context(query: str, namespace: str='main') -> dict:
+def natural_memory_context(query: str, namespace: str='main', graph_turn: bool=False, graph_model: str | None=None) -> dict:
     """Run the existing validated Natural Language Query before generation.
 
     Uses the configured SQL Tensor NLQ backend/planner. No broad semantic fallback
     on empty or unsupported plans; only matched source records are returned.
     """
     from nlq_context import natural_context
-    return natural_context(query,namespace)
+    from live_dynamics import notify_chat_turn, notify_context_focus
+    # Explicit per-request opt-in from the host, never infer turns from timing.
+    request_id=notify_chat_turn(namespace,model=graph_model,engine='Unsloth MCP') if graph_turn else None
+    result=natural_context(query,namespace)
+    if request_id:notify_context_focus(namespace,request_id,result['candidates'])
+    return result
 
 @mcp.tool(annotations=READ)
 def literal_memory_candidates(query: str, namespace: str='main') -> dict:

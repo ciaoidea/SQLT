@@ -72,7 +72,8 @@ async def enrich(payload, *, config=None, retrieve=None):
         async def retrieve(q):
             result = await asyncio.to_thread(call_tool_structured_sync,
                 server['url'], parse_server_headers(server), tool,
-                {'query':q,'namespace':config.get('namespace','main')}, timeout=100 if tool=='natural_memory_context' else 20)
+                {'query':q,'namespace':config.get('namespace','main'),
+                 **({'graph_turn':True,'graph_model':getattr(payload,'model',None)} if tool=='natural_memory_context' else {})}, timeout=100 if tool=='natural_memory_context' else 20)
             return unpack(result)
     # Fail closed: no generation is allowed when opted-in retrieval fails.
     evidence = await asyncio.wait_for(retrieve(query), timeout=105 if config.get('retrieval_tool')=='natural_memory_context' else 25)

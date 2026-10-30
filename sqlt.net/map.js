@@ -596,7 +596,7 @@ function observeMemory(event){
  $('page-position').textContent='';$('previous-page').disabled=true;$('next-page').disabled=true;
  return true;
 }
-function focusMemory(records,ids){
+function focusMemory(records,ids,preparedContext=false){
  if(graphSource==='query'||!window.CortexLive?.active())return false;
  graphSource='chat';
  cy.elements().remove();
@@ -605,6 +605,7 @@ function focusMemory(records,ids){
  $('result-title').textContent=ids.length?'Selected supporting memory':'No supporting memory selected';
  $('result-scope').textContent='Selected by the language model for the current request · not independent verification';
  $('status').textContent=`${cy.nodes().length} nodes · ${cy.edges().length} supporting links · ${records.length}/${ids.length} selected records in visual trace`;
+ if(preparedContext){$('result-title').textContent='Prepared memory context';$('result-scope').textContent='Actual records passed to the model · not model-selected answer evidence or verified relevance';$('status').textContent=`${cy.nodes().length} nodes · ${cy.edges().length} context links · ${records.length}/${ids.length} context records in visual trace`;}
  if(executionTrace.size){$('result-title').textContent='Memory and operational trace';$('result-scope').textContent='Model-selected memories and observed tool lifecycle · completion is not independent outcome verification';$('status').textContent+=' · '+executionTrace.size+' observed operations retained';}
  return true;
 }

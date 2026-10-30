@@ -23,6 +23,31 @@ class LiveTests(unittest.TestCase):
             if len(result['events'])>=n:return result
             time.sleep(.01)
         self.fail('Missing telemetry')
+    def test_remote_context_boundary_and_final_focus_are_distinct_from_answer_support(self):
+        self.collector.poll('test_client')
+        live._active_cache.clear()
+        request=live.notify_chat_turn(self.namespace,model='Example/Small',engine='Unsloth MCP')
+        live.notify_context_focus(self.namespace,request,[{'event_id':22,'frame':'synthetic',
+            'source':'PRIVATE SOURCE','roles':[{'role':'entity','value':'Synthetic'}]}])
+        events=self.wait_events(3)['events']
+        self.assertEqual([e['operation'] for e in events],['chat_turn','memory_selection','context_focus'])
+        self.assertEqual(events[0]['engine'],'Unsloth MCP')
+        self.assertEqual(events[-1]['request_id'],events[0]['call'])
+        self.assertEqual(events[-1]['selected_ids'],[22])
+        self.assertNotIn('PRIVATE SOURCE',json.dumps(events))
+
+    def test_empty_context_explicitly_clears_final_selection(self):
+        self.collector.poll('test_client');live._active_cache.clear()
+        request=live.notify_chat_turn(self.namespace)
+        live.notify_context_focus(self.namespace,request,[])
+        self.assertEqual(self.wait_events(3)['events'][-1]['selected_ids'],[])
+
+    def test_inactive_context_uses_no_transport(self):
+        with patch.object(live,'watching',return_value=False),patch.object(live,'emit') as emit:
+            self.assertIsNone(live.notify_chat_turn(self.namespace,engine='Unsloth MCP'))
+            live.notify_context_focus(self.namespace,None,[])
+            emit.assert_not_called()
+
     def test_idle_does_not_serialize_open_socket_or_transform_result(self):
         @live.observed
         def fake(namespace='main'):return {'event_id':7,'source':'do not transport'}

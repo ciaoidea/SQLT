@@ -34,15 +34,15 @@ window.CortexLive=(()=>{
    }
    for(const record of event.records||[]){candidateCache.set(record.id,record);if(candidateCache.size>192)candidateCache.delete(candidateCache.keys().next().value);}
   }
-  const focus=events.filter(e=>e.operation==='memory_focus'&&e.request_id===activeTurn).at(-1);
+  const focus=events.filter(e=>['memory_focus','context_focus'].includes(e.operation)&&e.request_id===activeTurn).at(-1);
   let retained=false,focusRecords=[];
   if(focus){
    focusRecords=(focus.selected_ids||[]).map(id=>candidateCache.get(id)).filter(Boolean);
-   retained=window.CortexGraph?.focusMemory(focusRecords,focus.selected_ids||[]);
+   retained=window.CortexGraph?.focusMemory(focusRecords,focus.selected_ids||[],focus.operation==='context_focus');
    for(const burst of bursts)if(!burst.pipeline)burst.collapseAt=now;
   }
   for(const event of events){
-   if(event.operation==='memory_focus'&&event!==focus)continue;
+   if(['memory_focus','context_focus'].includes(event.operation)&&event!==focus)continue;
    if(!['start','complete','error'].includes(event.phase) || event.origin==='viewer')continue;
    packets++;
    const focusedEvent=event===focus;
