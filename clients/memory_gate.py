@@ -60,7 +60,10 @@ async def assemble(call,namespace,query,seed=None):
         if used+state_chars+size>MAX_CONTEXT_CHARS:
             state_omitted+=1;continue
         states.append(state);state_chars+=size
-    return {'operational_states':states,
+    return {'evidence_contract':seed.get('evidence_contract',{}),
+            'retrieval_plan':seed.get('plan'), 'query_outcome':seed.get('outcome'),
+            'clarification':seed.get('clarification',''), 'retrieval_coverage':seed.get('coverage',{}),
+            'operational_states':states,
             'operational_state_coverage':{'linked_cases_truncated':operational.get('has_more',False),
                 'omitted_for_budget':state_omitted,'state_is_derived':True},
             'namespace':namespace,'retrieval':seed.get('retrieval','semantic_seeds_and_exact_linked_evidence'),
@@ -87,7 +90,12 @@ async def recall(root, namespace, query):
                 result=await session.call_tool(name,args)
                 if result.isError:raise RuntimeError('Memory MCP retrieval failed: '+name)
                 return result.structuredContent or json.loads(result.content[0].text)
-            hybrid=await call('memory_context',{'namespace':namespace,'query':query[:8000]})
+            config_path=root/'.nlq.json'
+            config=json.loads(config_path.read_text()) if config_path.exists() else {}
+            nlq_configured=config_path.exists() or bool(os.environ.get('CORTEX_NLQ_SOCKET'))
+            nlq_namespace=config.get('namespace',os.environ.get('CORTEX_NLQ_NAMESPACE','main'))
+            strategy='natural_memory_context' if nlq_configured and namespace==nlq_namespace else 'memory_context'
+            hybrid=await call(strategy,{'namespace':namespace,'query':query[:8000]})
             assembled=await assemble(call,namespace,query,seed={**hybrid,'events':hybrid['candidates']})
             from live_dynamics import notify_memory_selection
             notify_memory_selection(namespace,assembled['candidates'])

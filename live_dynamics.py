@@ -110,7 +110,7 @@ def notify_memory_selection(namespace, candidates):
 def snapshot(result):
     if not isinstance(result, dict):
         return [], 0
-    rows = result.get('events', [])
+    rows = result.get('events', result.get('candidates', []))
     if not isinstance(rows, list): rows=[]
     if isinstance(result.get('event'),dict): rows=[result['event']]
     records=[]

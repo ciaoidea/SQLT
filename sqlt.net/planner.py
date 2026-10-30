@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import subprocess
 import time
+from datetime import datetime
 from jsonschema import validate
 
 HERE = Path(__file__).resolve().parent
@@ -36,7 +37,15 @@ is relational with group_by ["company","region"] and needs no clarification.
 Ask a clarification only about an ambiguity actually present in the user question.
 Use only supplied real frames and role names, not invented labels. Crucially, select
 filter roles from frame_roles for the chosen frame, not from another frame. Use
-categorical_examples to select the actual stored field and label (e.g. FTTH). SQL AND filters apply
+categorical_examples to select the actual stored field and label (e.g. FTTH).
+field_coverage reports the observed fraction of records carrying each role. A role
+listed in frame_roles is NOT necessarily present in every event. For identity
+selection prefer fully populated identity fields over partially populated auxiliary
+company/branch/person fields; otherwise matching evidence in older records is lost.
+Never substitute another stored field for the requested field. For legacy network
+identity labels, entity contains the stable company | branch fragment, and is
+safer than AND filters on sparsely populated company and branch roles.
+SQL AND filters apply
 inside a single event; queries form an OR union, up to 4. Distinguish identity and companies.
 Use relational for exact lists/counts/numeric filters; semantic only for genuine meaning
 search, never as an exhaustive list. Hybrid means vector cosine ranking within the supplied SQL filters and frame;
@@ -54,6 +63,12 @@ not a guessed free-text address match. This is field decoding, not inference.
 For branch requests prefer branch_connectivity (network inventory); report its scope.
 For unknown capabilities, ambiguities or missing fields set mode clarify and explain briefly
 in English. No SQL strings or write actions. No unsupported joins or inferred relationships.
+Preserve every explicit person, organization, incident and time restriction in the
+validated filters. Do not silently replace a requested sender with a project contact,
+or a communication/event date with an unrelated update/as_of date. semantic_query
+is a ranking phrase, not an enforced WHERE condition. If a required restriction
+cannot be expressed with actual stored fields, return clarify instead of dropping it.
+Do not broaden a zero-match plan or fall back to general contact profiles.
 Sorting by a stored field, SQL aggregations and computed formulas are not implemented
 in this viewer: clarify such requests rather than pretend an ordering or calculation occurred.
 Grouping here means visual grouping of retrieved records, not SQL aggregation.
@@ -68,7 +83,7 @@ APFC grouping can use any field in that dataset. Memory entities are episodic la
 APFC entities are explicitly registered identities. Do not substitute them silently.
 Title in English. Allowed operators are literal, not SQL wildcards; numerical operands are
 strings parsed as strict numbers. For exists/missing use null. Avoid unnecessary filters.
-CATALOG: '''+json.dumps(catalog,ensure_ascii=False)+'\nUSER QUESTION: '+json.dumps(question,ensure_ascii=False)
+CATALOG: '''+json.dumps(catalog,ensure_ascii=False)+'\nCURRENT SERVER DATE AND TIME: '+datetime.now().astimezone().isoformat()+'\nUSER QUESTION: '+json.dumps(question,ensure_ascii=False)
  command=['codex','exec','--ignore-user-config','--skip-git-repo-check','--ephemeral',
           '--sandbox','read-only','--disable','shell_tool','--disable','apps',
           '-c','web_search="disabled"','-c','model_reasoning_effort="low"',

@@ -18,3 +18,5 @@ verification*.json
 *-answer.txt
 
 .structure
+
+.nlq.json

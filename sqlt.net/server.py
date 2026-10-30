@@ -152,6 +152,7 @@ def compact_events(events):
 class MemoryBridge:
     def __init__(self, namespace):
         self.namespace = namespace
+        self.traces = []
         self.ready = threading.Event()
         self.loop = asyncio.new_event_loop()
         self.thread = threading.Thread(target=self._worker, daemon=True)
@@ -202,12 +203,16 @@ class MemoryBridge:
         if getattr(self, 'catalog_time', 0) > time.monotonic() - 120:
             return self.catalog
         frames, roles, frame_roles, examples = set(), set(), {}, {}
+        frame_counts, field_counts = {}, {}
         offset = 0
         while True:
             sample = await self._call('query_memory', {'filters': [], 'offset': offset,
                        'limit': 100, 'negated': None, 'include_source': False})
             for event in sample['events']:
                 frame = event['frame']; frames.add(frame)
+                frame_counts[frame]=frame_counts.get(frame,0)+1
+                for present in {b['role'] for b in event['roles']}:
+                    key=(frame,present);field_counts[key]=field_counts.get(key,0)+1
                 fields = frame_roles.setdefault(frame, set())
                 for binding in event['roles']:
                     role, value = binding['role'], binding['value']
@@ -219,6 +224,9 @@ class MemoryBridge:
             offset = sample['next_offset']
         self.catalog = {'frames': sorted(frames), 'roles': sorted(roles),
                         'frame_roles': {k: sorted(v) for k, v in frame_roles.items()},
+                        'field_coverage':{f:{r:round(field_counts[(f,r)]/frame_counts[f],3) for r in rs}
+                                          for f,rs in frame_roles.items()},
+                        'catalog_complete':not sample['has_more'],
                         'categorical_examples': {f: {r: sorted(v) for r, v in fields.items()}
                                                  for f, fields in examples.items()}}
         self.catalog_time = time.monotonic()
@@ -467,12 +475,14 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == '/api/graph':
             params = parse_qs(url.query)
             mode, query = params.get('mode', ['initial'])[0], params.get('q', [''])[0].strip()
-            if mode not in ('initial', 'search', 'expand', 'semantic', 'natural') or len(query) > 2000:
+            if mode not in ('initial', 'search', 'expand', 'semantic', 'natural') or len(query) > 8000:
                 return self.send(400, b'Invalid query', 'text/plain')
             try:
                 if params.get('live',['0'])[0]=='1':
                     return self.stream_query(lambda:self.server.bridge.browse(mode,query))
                 data = self.server.bridge.browse(mode, query)
+                data['memory_origin']={'installation':hashlib.sha256(str(ROOT.resolve()).encode()).hexdigest()[:24],
+                                       'namespace':self.server.bridge.namespace}
                 return self.send(200, json.dumps(data, ensure_ascii=False).encode(), 'application/json; charset=utf-8')
             except (RuntimeError, ValueError) as error:
                 return self.send(422, json.dumps({'error': str(error)}).encode(), 'application/json')

@@ -42,6 +42,9 @@ class ContextTests(unittest.IsolatedAsyncioTestCase):
             if name=='semantic_recall':return {'events':[event(1,source='x'*30000,negated=True)]}
             return {'events':[],'total':0,'has_more':False}
         r=await assemble_context(call,'main','q',{'events':[]})
+        self.assertEqual(r['evidence_contract']['current_operational_status'],'not_verified')
+        self.assertEqual(r['evidence_contract']['live_source_checks'],[])
+        self.assertEqual(r['evidence_contract']['missing_update_means'],'unknown_not_still_broken')
         self.assertTrue(r['candidates'][0]['negated'])
         self.assertTrue(r['candidates'][0]['source_truncated'])
         self.assertLess(len(json.dumps(r)),12000)
@@ -85,6 +88,19 @@ class GateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(p.messages),2)
         self.assertEqual(calls,['question','question'])
         self.assertEqual(p.messages[-1].content,'question')
+    async def test_completed_read_plan_does_not_return_to_tool_search(self):
+        class Message:
+            def __init__(self,role,content):self.role,self.content=role,content
+        models=ModuleType('models');module=ModuleType('models.inference');module.ChatMessage=Message
+        p=SimpleNamespace(mcp_enabled=True,messages=[Message('user','question')],tools=[{'type':'function'}])
+        async def retrieve(q):return {'candidates':[],'plan':{'mode':'relational'},'outcome':'no_matching_records_for_this_plan'}
+        with patch.dict(sys.modules,{'models':models,'models.inference':module}):
+            await gate.enrich(p,config={'enabled':True,'read_answer_only':True},retrieve=retrieve)
+        self.assertEqual(p.tool_choice,'none')
+        self.assertFalse(p.mcp_enabled)
+        self.assertFalse(p.enable_tools)
+        self.assertIsNone(p.tools)
+
     async def test_failure_stops_before_injection(self):
         p=SimpleNamespace(mcp_enabled=True,messages=[SimpleNamespace(role='user',content='question')])
         async def fail(q):raise RuntimeError('offline')

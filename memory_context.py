@@ -1,5 +1,6 @@
 """Bounded, read-only hybrid retrieval; no LLM, intent parser or domain rules."""
 import json
+from datetime import datetime, timezone
 import math
 import re
 import time
@@ -84,6 +85,11 @@ async def assemble_context(call, namespace, query, lexical):
         candidates.append(item);size += n
         if len(candidates) >= 8:break
     return {'namespace':namespace, 'retrieval':'automatic_hybrid_read_only',
+        'evidence_contract':{'retrieved_at_utc':datetime.now(timezone.utc).isoformat(),
+            'live_source_checks':[], 'current_operational_status':'not_verified',
+            'candidate_relevance':'not_verified',
+            'cross_record_relations':'not_established_by_co_retrieval',
+            'missing_update_means':'unknown_not_still_broken'},
         'candidates':candidates, 'linked_searches':searches,
         'coverage':{'complete':False,'omitted_events':len(found)-len(candidates),
                     'lexical_terms':lexical.get('terms',[]),'query_truncated':len(query)>8000},

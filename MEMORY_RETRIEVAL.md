@@ -129,3 +129,56 @@ This restores observed tool bursts while Graph/Live is visible. It does not by
 itself provide a remote application's turn boundary or model-selected final
 `focus_memory` event. Those are separate from the transport and are necessary
 for a trustworthy stable graph of the evidence actually used in an answer.
+
+## Contextual NLQ strategy
+
+`natural_memory_context` reuses the existing SQL Tensor Natural Language Query
+planner and executor. It applies a schema-validated plan and returns only its
+matches. Empty/unsupported plans never fall back to general contact profiles or
+broad semantic neighbors. The planner receives the server date and the sampled
+coverage of each field: a field in the catalog is not necessarily populated in
+every record. Questions can concern identity, attributes, relations, quantities,
+locations or dates; this is not a date-specific filter.
+
+This optional strategy uses the existing planner provider (currently Codex as
+configured in `sqlt.net/planner.py`), independently of the model generating the
+answer. It adds a planning round trip and is not a fully local or free retrieval
+path. It does not normalize existing identities or make model-generated plans
+infallible. Explicit SQL filters constrain matches; a semantic ranking phrase
+alone is not an enforced condition. Completeness is scoped to the chosen plan,
+not all external sources or all possible representations of an entity.
+
+Configure a running viewer backend through `CORTEX_NLQ_SOCKET` or an owner-only
+`.nlq.json` in the installation, containing `{"socket":"/path/to/http.sock"}`.
+The backend returns an installation fingerprint and namespace; the adapter
+refuses responses from another Cortex installation or namespace. No schema or
+user-data migration is performed. Cortex's terminal gate chooses this strategy
+when this installation-specific configuration exists, otherwise the original
+hybrid strategy is used.
+
+For the optional Unsloth adapter, set `retrieval_tool` to
+`natural_memory_context` in its private configuration and restart Studio. Its
+maximum retrieval wait is 105 seconds (including the existing planner timeout),
+instead of 25 seconds for the fast hybrid strategy. No generation follows a
+retrieval failure. The query budget is 8000 characters; evidence remains bounded.
+No current service-health conclusion can be drawn from an empty plan result.
+
+For the portable loopback HTTP viewer, `.nlq.json` may instead contain
+`{"url":"http://127.0.0.1:PORT"}`. Only a loopback HTTP destination or an explicit
+local UNIX socket is accepted. The source/namespace fingerprint must still match.
+
+For read-only NLQ answer generation, the optional Unsloth `read_answer_only: true`
+setting suppresses further tool discovery after a validated relational, semantic
+or hybrid read plan has executed. The model receives those results for language
+output instead of re-searching tool names for the requested data. This affects
+that request only; it is not a database permission boundary. Additional tools are
+not available during this final read-answer phase, so partial coverage must be
+reported rather than completed silently. This mode is opt-in; the normal Cortex
+terminal stays on its existing retrieval strategy unless explicitly configured.
+
+The optional installer accepts `--retrieval-tool natural_memory_context` and
+`--read-answer-only`; use `--allow-follow-up-tools` to disable the latter. Existing
+private choices are preserved when reinstalling without these flags. Changes
+require restarting Unsloth, not merely refreshing its browser page. Verify the
+HTTP chat route as well as standalone tool/model calls before declaring deployment
+active. Planning adds latency; quality and speed remain model/provider dependent.

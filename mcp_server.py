@@ -524,4 +524,15 @@ async def memory_context(query: str, namespace: str='main') -> dict:
         return await asyncio.to_thread(globals()[name],**args)
     return await assemble_context(call,namespace,query,matches)
 
+@mcp.tool(annotations=READ)
+@observed
+def natural_memory_context(query: str, namespace: str='main') -> dict:
+    """Run the existing validated Natural Language Query before generation.
+
+    Uses the configured SQL Tensor NLQ backend/planner. No broad semantic fallback
+    on empty or unsupported plans; only matched source records are returned.
+    """
+    from nlq_context import natural_context
+    return natural_context(query,namespace)
+
 if __name__=='__main__':mcp.run(transport='stdio')

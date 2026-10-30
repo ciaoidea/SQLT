@@ -44,18 +44,24 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--backend-root',type=Path,required=True)
     p.add_argument('--server-id')
-    p.add_argument('--namespace',default='main')
+    p.add_argument('--namespace',default=None)
+    p.add_argument('--retrieval-tool',choices=['memory_context','natural_memory_context'])
+    mode=p.add_mutually_exclusive_group()
+    mode.add_argument('--read-answer-only',dest='read_answer_only',action='store_const',const=True,default=None)
+    mode.add_argument('--allow-follow-up-tools',dest='read_answer_only',action='store_const',const=False)
     p.add_argument('--uninstall',action='store_true')
     args=p.parse_args()
     install(args.backend_root,args.uninstall)
     config=Path.home()/'.config/unsloth-cortex-memory.json'
-    if args.server_id:
+    if args.server_id or args.retrieval_tool or args.read_answer_only is not None or (args.uninstall and config.exists()):
+        value=json.loads(config.read_text()) if config.exists() else {}
+        if args.server_id:value['server_id']=args.server_id
+        value['namespace']=args.namespace or value.get('namespace','main')
+        value['enabled']=not args.uninstall
+        if args.retrieval_tool:value['retrieval_tool']=args.retrieval_tool
+        if args.read_answer_only is not None:value['read_answer_only']=args.read_answer_only
         config.parent.mkdir(parents=True,exist_ok=True)
-        config.write_text(json.dumps({'enabled':not args.uninstall,'server_id':args.server_id,
-                                      'namespace':args.namespace},indent=2)+'\n');config.chmod(0o600)
-    elif args.uninstall and config.exists():
-        value=json.loads(config.read_text());value['enabled']=False
-        config.write_text(json.dumps(value,indent=2)+'\n')
+        config.write_text(json.dumps(value,indent=2)+'\n');config.chmod(0o600)
     print('Hook removed.' if args.uninstall else 'Hook installed. Restart Unsloth Studio to activate.')
 
 

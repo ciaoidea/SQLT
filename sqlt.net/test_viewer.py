@@ -57,7 +57,7 @@ class ViewerTests(unittest.TestCase):
 class HTTPBoundaryTests(unittest.TestCase):
     def setUp(self):
         self.http = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
-        self.http.bridge = SimpleNamespace(browse=lambda mode, query: {
+        self.http.bridge = SimpleNamespace(namespace='main',browse=lambda mode, query: {
             'elements': [], 'events': 0, 'test_mode': mode, 'test_query': query})
         self.thread = threading.Thread(target=self.http.serve_forever, daemon=True)
         self.thread.start()
@@ -158,3 +158,18 @@ class LiveHTTPTests(unittest.TestCase):
     response=c.getresponse();self.assertEqual(response.status,wanted);response.read();c.close()
    self.assertEqual(server.live.poll.call_count,1)
   finally:server.shutdown();server.server_close();thread.join(2)
+
+
+class CatalogCoverageTests(unittest.IsolatedAsyncioTestCase):
+ async def test_union_of_roles_does_not_imply_every_record_has_every_role(self):
+  from server import MemoryBridge
+  bridge=object.__new__(MemoryBridge)
+  async def call(name,args):
+   return {'events':[event(1,'org | alpha | north | address'),
+                     dict(event(2,'org | alpha | north | address'),roles=[{'role':'entity','value':'org | alpha'},{'role':'company','value':'org'}])],
+           'has_more':False,'next_offset':None}
+  bridge._call=call
+  catalog=await bridge._catalog()
+  self.assertEqual(catalog['field_coverage']['branch_connectivity']['entity'],1.)
+  self.assertEqual(catalog['field_coverage']['branch_connectivity']['company'],.5)
+  self.assertTrue(catalog['catalog_complete'])
