@@ -119,6 +119,25 @@ class GateTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(p.enable_tools)
         self.assertIsNone(p.tools)
 
+    async def test_explicit_mandatory_mode_retrieves_with_ui_tools_disabled(self):
+        class Message:
+            def __init__(self,role,content):self.role,self.content=role,content
+        models=ModuleType('models');module=ModuleType('models.inference');module.ChatMessage=Message
+        p=SimpleNamespace(mcp_enabled=False,enable_tools=False,tool_choice='none',messages=[Message('user','question')])
+        async def retrieve(q):return {'candidates':[event(8)],'plan':{'mode':'relational'}}
+        with patch.dict(sys.modules,{'models':models,'models.inference':module}):
+            self.assertTrue(await gate.enrich(p,config={'enabled':True,'always_retrieve':True},retrieve=retrieve))
+        self.assertIn('original observation',p.messages[0].content)
+        self.assertFalse(p.enable_tools)
+        self.assertEqual(p.tool_choice,'none')
+
+    async def test_mandatory_mode_failure_still_blocks_generation(self):
+        p=SimpleNamespace(mcp_enabled=False,messages=[SimpleNamespace(role='user',content='question')])
+        async def fail(q):raise RuntimeError('offline')
+        with self.assertRaises(RuntimeError):
+            await gate.enrich(p,config={'enabled':True,'always_retrieve':True},retrieve=fail)
+        self.assertEqual(len(p.messages),1)
+
     async def test_failure_stops_before_injection(self):
         p=SimpleNamespace(mcp_enabled=True,messages=[SimpleNamespace(role='user',content='question')])
         async def fail(q):raise RuntimeError('offline')
@@ -131,6 +150,16 @@ class GateTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(RuntimeError):gate.unpack({'is_error':True})
 
 class InstallerTests(unittest.TestCase):
+    def test_legacy_frontend_interceptor_removed_without_changing_other_scripts(self):
+        with tempfile.TemporaryDirectory() as d:
+            b=Path(d)/'backend';b.mkdir()
+            p=Path(d)/'frontend/dist/index.html';p.parent.mkdir(parents=True)
+            p.write_text('<script src="/assets/cortex-read-context-v4.js"></script><script src="app.js"></script>')
+            with patch.object(installer.Path,'home',return_value=Path(d)):
+                installer.retire_legacy_frontend(b)
+            self.assertEqual(p.read_text(),'<script src="app.js"></script>')
+            installer.retire_legacy_frontend(b)
+
     def test_version_check_is_fail_closed(self):
         with tempfile.TemporaryDirectory() as d:
             b=Path(d);(b/'routes').mkdir();r=b/'routes/inference.py';r.write_text('unknown version\n')

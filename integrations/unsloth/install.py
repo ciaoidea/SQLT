@@ -2,6 +2,7 @@
 import argparse
 import datetime
 import json
+import re
 from pathlib import Path
 import shutil
 
@@ -15,6 +16,20 @@ HOOK = BEGIN + '''    from core.inference.cortex_memory_gate import enrich as co
         # Never continue without memory after an opted-in retrieval failure.
         raise HTTPException(status_code=503, detail="Cortex automatic memory retrieval failed; generation was not started.") from None
 ''' + END
+
+
+def retire_legacy_frontend(backend):
+    """Retire only our known obsolete fetch-interceptor, preserving other assets."""
+    page=backend.parent/'frontend/dist/index.html'
+    if not page.exists():return
+    original=page.read_text()
+    text=re.sub(r'<script\s+src=[\'"]/?assets/cortex-read-context-v[34]\.js[\'"]\s*></script>', '',original)
+    if text==original:return
+    backup=Path.home()/'.local/state/cortex-unsloth-backups'/datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
+    backup.mkdir(parents=True,mode=0o700)
+    shutil.copy2(page,backup/'index.html')
+    temp=page.with_suffix('.html.cortex-tmp');temp.write_text(text)
+    shutil.copymode(page,temp);temp.replace(page)
 
 
 def install(backend, remove=False):
@@ -37,7 +52,9 @@ def install(backend, remove=False):
         shutil.copymode(route,temp);temp.replace(route)
     module=backend/'core/inference/cortex_memory_gate.py'
     if remove:module.unlink(missing_ok=True)
-    else:shutil.copy2(Path(__file__).with_name('cortex_memory_gate.py'),module)
+    else:
+        shutil.copy2(Path(__file__).with_name('cortex_memory_gate.py'),module)
+        retire_legacy_frontend(backend)
 
 
 def main():
@@ -49,17 +66,21 @@ def main():
     mode=p.add_mutually_exclusive_group()
     mode.add_argument('--read-answer-only',dest='read_answer_only',action='store_const',const=True,default=None)
     mode.add_argument('--allow-follow-up-tools',dest='read_answer_only',action='store_const',const=False)
+    retrieval=p.add_mutually_exclusive_group()
+    retrieval.add_argument('--always-retrieve',dest='always_retrieve',action='store_const',const=True,default=None)
+    retrieval.add_argument('--respect-mcp-toggle',dest='always_retrieve',action='store_const',const=False)
     p.add_argument('--uninstall',action='store_true')
     args=p.parse_args()
     install(args.backend_root,args.uninstall)
     config=Path.home()/'.config/unsloth-cortex-memory.json'
-    if args.server_id or args.retrieval_tool or args.read_answer_only is not None or (args.uninstall and config.exists()):
+    if args.server_id or args.retrieval_tool or args.read_answer_only is not None or args.always_retrieve is not None or (args.uninstall and config.exists()):
         value=json.loads(config.read_text()) if config.exists() else {}
         if args.server_id:value['server_id']=args.server_id
         value['namespace']=args.namespace or value.get('namespace','main')
         value['enabled']=not args.uninstall
         if args.retrieval_tool:value['retrieval_tool']=args.retrieval_tool
         if args.read_answer_only is not None:value['read_answer_only']=args.read_answer_only
+        if args.always_retrieve is not None:value['always_retrieve']=args.always_retrieve
         config.parent.mkdir(parents=True,exist_ok=True)
         config.write_text(json.dumps(value,indent=2)+'\n');config.chmod(0o600)
     print('Hook removed.' if args.uninstall else 'Hook installed. Restart Unsloth Studio to activate.')

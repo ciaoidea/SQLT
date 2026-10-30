@@ -257,3 +257,6 @@ workflow; automatic write/learning behavior is not validated by these tests.
 
 ### Remote Unsloth live graph
 The natural-memory adapter explicitly starts a graph turn before retrieval and retains the actual injected context after retrieval. This uses existing bounded, viewer-leased telemetry: no extra model call, database write or stored event log. The stable graph is labelled **Prepared memory context**, not model-selected supporting evidence. It does not attest which records the generator used or validate their relevance. Each new host turn clears the preceding graph, including empty/clarification results. Cortex native model-selected focus remains distinct.
+
+### Dedicated Unsloth memory mode and legacy UI cleanup
+`install.py --always-retrieve` explicitly opts a dedicated client into mandatory retrieval even when the browser sends `mcp_enabled=false` / `tool_choice=none`. It does not enable model tools or writes. `--respect-mcp-toggle` restores the default per-request MCP gate. Retrieval failure still blocks generation. The installer backs up and removes only the known obsolete `cortex-read-context-v3.js` / `v4.js` script tags, which rewrote questions and restricted roles in the browser. Other scripts are preserved. Reload existing browser tabs after upgrading; already-executed JavaScript remains active until reload.

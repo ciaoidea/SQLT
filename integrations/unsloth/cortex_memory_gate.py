@@ -47,12 +47,12 @@ def unpack(result):
 
 
 async def enrich(payload, *, config=None, retrieve=None):
-    if not getattr(payload, 'mcp_enabled', False):return False
     if config is None:
         path = Path.home()/'.config/unsloth-cortex-memory.json'
         if not path.exists():return False
         config = json.loads(path.read_text())
     if not config.get('enabled',False):return False
+    if not getattr(payload,'mcp_enabled',False) and not config.get('always_retrieve',False):return False
     users = [m for m in payload.messages if m.role=='user']
     if not users:return False
     query = text_content(users[-1]).strip()
