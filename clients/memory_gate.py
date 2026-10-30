@@ -13,8 +13,10 @@ MAX_PAGES=2
 MAX_EVENTS=18
 MAX_CONTEXT_CHARS=24000
 
-async def assemble(call,namespace,query):
-    seed=await call('semantic_recall',{'namespace':namespace,'query':query[:8000],'limit':6})
+async def assemble(call,namespace,query,seed=None):
+    expanded=seed is not None
+    if seed is None:
+        seed=await call('semantic_recall',{'namespace':namespace,'query':query[:8000],'limit':6})
     seeds=seed.get('events',[])
     anchors=[]
     for priority in (CASE_ROLES,{'entity'}):
@@ -23,9 +25,9 @@ async def assemble(call,namespace,query):
                 key=(binding['role'],binding['value'])
                 if key[0] in priority and key not in anchors:
                     anchors.append(key)
-    anchors=anchors[:MAX_LINK_QUERIES]
+    anchors=[] if expanded else anchors[:MAX_LINK_QUERIES]
     found={e['event_id']:e for e in seeds}
-    searches=[]
+    searches=seed.get('linked_searches',[]) if expanded else []
     for role,value in anchors:
         offset=0
         for page in range(MAX_PAGES):
@@ -45,7 +47,7 @@ async def assemble(call,namespace,query):
         e=found[ident];source=e.get('source','')
         excerpt=source if len(source)<=1200 else source[:800]+'\n[excerpt omitted]\n'+source[-400:]
         item=dict(event_id=ident,frame=e['frame'],negated=e['negated'],roles=e['roles'],
-                  source=excerpt,source_truncated=len(source)>1200,time=e.get('time'),place=e.get('place'))
+                  source=excerpt,source_truncated=e.get('source_truncated',False) or len(source)>1200,time=e.get('time'),place=e.get('place'))
         size=len(json.dumps(item,ensure_ascii=False))
         if used+size>MAX_CONTEXT_CHARS-8000:break
         candidates.append(item);used+=size
@@ -61,7 +63,7 @@ async def assemble(call,namespace,query):
     return {'operational_states':states,
             'operational_state_coverage':{'linked_cases_truncated':operational.get('has_more',False),
                 'omitted_for_budget':state_omitted,'state_is_derived':True},
-            'namespace':namespace,'retrieval':'semantic_seeds_and_exact_linked_evidence',
+            'namespace':namespace,'retrieval':seed.get('retrieval','semantic_seeds_and_exact_linked_evidence'),
             'query_truncated':len(query)>8000,'candidates':candidates,'linked_searches':searches,
             'coverage':{'complete_case_state':False,'discovered_events':len(found),
                         'included_events':len(candidates),'omitted_events':len(found)-len(candidates),
@@ -85,7 +87,8 @@ async def recall(root, namespace, query):
                 result=await session.call_tool(name,args)
                 if result.isError:raise RuntimeError('Memory MCP retrieval failed: '+name)
                 return result.structuredContent or json.loads(result.content[0].text)
-            assembled=await assemble(call,namespace,query)
+            hybrid=await call('memory_context',{'namespace':namespace,'query':query[:8000]})
+            assembled=await assemble(call,namespace,query,seed={**hybrid,'events':hybrid['candidates']})
             from live_dynamics import notify_memory_selection
             notify_memory_selection(namespace,assembled['candidates'])
             return assembled

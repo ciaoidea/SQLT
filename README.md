@@ -184,3 +184,10 @@ provisional; the model can select supporting evidence for the active request
 with the read-only `focus_memory` tool. The selected graph remains after flares
 fade. This visual selection is not independent verification or access to hidden
 model activations. See [Live dynamics](LIVE_DYNAMICS.md) for limits and tests.
+
+## Automatic memory before generation
+
+The terminal memory gate now combines literal value anchors, semantic retrieval,
+and exact identity expansion. An optional Unsloth integration performs the same
+read-only lookup before generation, independently of model tool selection.
+See [MEMORY_RETRIEVAL.md](MEMORY_RETRIEVAL.md) for installation, limits and tests.

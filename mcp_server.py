@@ -504,4 +504,24 @@ def apfc_status(namespace: str='main') -> dict:
     """APFC identity/case/policy counts and fixed operator/cache resource limits."""
     with memory(namespace) as m:return APFC(m).status()
 
+@mcp.tool(annotations=READ)
+async def memory_context(query: str, namespace: str='main') -> dict:
+    """Automatic hybrid memory lookup before generation, for any topic or model.
+
+    Combines literal stored values, semantic candidates and query_memory expansion.
+    Read-only and bounded; not exhaustive or a proof of relevance.
+    """
+    if not isinstance(query,str) or not 1<=len(query)<=8000:
+        raise ValueError('Query must contain 1..8000 characters')
+    from memory_context import lexical_candidates, assemble_context
+    import asyncio
+    def lexical():
+        with memory(namespace) as m:return lexical_candidates(m,query)
+    matches=await asyncio.to_thread(lexical)
+    async def call(name,args):
+        if name=='query_memory':
+            args={**args,'filters':[MemoryFilter(**f) for f in args['filters']]}
+        return await asyncio.to_thread(globals()[name],**args)
+    return await assemble_context(call,namespace,query,matches)
+
 if __name__=='__main__':mcp.run(transport='stdio')
