@@ -20,11 +20,23 @@ def lexical_candidates(memory, query, limit=8, exact_anchor_required=True):
             # Unicode word boundaries, not a natural-language grammar. Values only:
             # a tool/role name is never mistaken for the stored answer.
             pattern = r'(^|[^[:alnum:]_])' + re.escape(token) + r'([^[:alnum:]_]|$)'
-            c.execute('SELECT b.event_id,MAX(b.label=%s) FROM episodic_bindings b '
-                      'JOIN episodic_events e ON e.id=b.event_id '
-                      'WHERE e.namespace=%s AND e.active=TRUE AND b.label REGEXP %s '
-                      'GROUP BY b.event_id LIMIT 257', (token, memory.namespace, pattern))
-            rows = c.fetchall()
+            if exact_anchor_required:
+                c.execute('SELECT b.event_id,MAX(b.label=%s) FROM episodic_bindings b '
+                          'JOIN episodic_events e ON e.id=b.event_id '
+                          'WHERE e.namespace=%s AND e.active=TRUE AND b.label REGEXP %s '
+                          'GROUP BY b.event_id LIMIT 257', (token, memory.namespace, pattern))
+                rows=c.fetchall();specificity={}
+            else:
+                # Discovery resolves identity fields, not arbitrary descriptive
+                # text. These are schema roles, never user-language keywords.
+                c.execute('SELECT b.event_id,MAX(b.label=%s),MIN(CHAR_LENGTH(b.label)) '
+                          'FROM episodic_bindings b JOIN episodic_events e ON e.id=b.event_id '
+                          'WHERE e.namespace=%s AND e.active=TRUE '
+                          "AND b.role IN ('entity','entità','person','alias','contact','branch','company') "
+                          'AND b.label REGEXP %s GROUP BY b.event_id LIMIT 257',
+                          (token,memory.namespace,pattern))
+                raw=c.fetchall();rows=[(i,exact) for i,exact,_ in raw]
+                specificity={i:1/math.sqrt(max(1,int(length))) for i,_,length in raw}
             if not rows:
                 continue
             terms.append({'token': token, 'matches_bounded': len(rows), 'truncated': len(rows) > 256})
@@ -36,9 +48,9 @@ def lexical_candidates(memory, query, limit=8, exact_anchor_required=True):
                 exact_terms.append((token, rows))
             weight = 1 / math.sqrt(len(rows))
             for ident, exact in rows:
-                hits[ident] = hits.get(ident, 0.) + weight * (3 if exact else 1)
+                hits[ident] = hits.get(ident, 0.) + weight * (3 if exact else 1) * specificity.get(ident,1.)
         # Prefer literal identity/value anchors over incidental generic words.
-        if exact_terms:
+        if exact_terms and exact_anchor_required:
             hits = {}
             for token, rows in exact_terms:
                 for ident, exact in rows:

@@ -542,7 +542,7 @@ def natural_memory_context(query: str, namespace: str='main', graph_turn: bool=F
 
 @mcp.tool(annotations=READ)
 def literal_memory_candidates(query: str, namespace: str='main') -> dict:
-    """Discover literal stored values across frames before choosing a query plan.
+    """Discover literal identity bindings across frames before choosing a query plan.
 
     Word matches are discovery evidence, not proof of identity or exhaustive results.
     Does not guess aliases, use spelling similarity, or modify memory.
@@ -554,6 +554,6 @@ def literal_memory_candidates(query: str, namespace: str='main') -> dict:
     return {'events':[dict(event_id=e['event_id'],frame=e['frame'],roles=e['roles'],
                           source=e.get('source','')[:650],time=e.get('time',''),negated=e['negated'])
                       for e in result['events']],
-            'scope':'Literal word matches across stored values, not semantic identity equivalence. Do not expand an unknown name to a similar-looking branch or person.'}
+            'scope':'Bounded literal matches in structured identity roles, not arbitrary descriptive text or exhaustive identity proof. Do not expand an unknown name to a similar-looking branch or person.'}
 
 if __name__=='__main__':mcp.run(transport='stdio')

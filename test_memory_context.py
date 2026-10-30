@@ -77,7 +77,7 @@ class LiteralDiscoveryTests(unittest.TestCase):
             def __exit__(self,*args):pass
             def execute(self,sql,params):
                 if 'SELECT b.event_id' in sql:
-                    self.rows=[(1,0)] if params[0]=='surname' else []
+                    self.rows=([(1,0,15)] if 'MIN(CHAR_LENGTH' in sql else [(1,0)]) if params[0]=='surname' else []
                 else:
                     self.rows=[(1,'case_notes',False,json.dumps([{'role':'person','value':'Example Surname'}]),'original source','2000-01-01','')]
             def fetchall(self):return self.rows
@@ -86,6 +86,27 @@ class LiteralDiscoveryTests(unittest.TestCase):
         self.assertEqual(found['events'][0]['frame'],'case_notes')
         # Existing strict-anchor hybrid behavior is unchanged.
         self.assertEqual(lexical_candidates(memory,'who is Surname')['events'],[])
+
+class StructuralIdentityTests(unittest.TestCase):
+    def test_descriptive_value_cannot_displace_subject_identity(self):
+        from memory_context import lexical_candidates
+        class Cursor:
+            def __enter__(self):return self
+            def __exit__(self,*args):pass
+            def execute(self,sql,params):
+                if 'SELECT b.event_id' in sql:
+                    self.rows=[]
+                    if params[0]=='surname':self.rows=[(11,0,15)]
+                    if params[0]=='attribute':
+                        # An exact label in descriptive text must not participate
+                        # in identity discovery at all; SQL restricts typed roles.
+                        if 'b.role IN' not in sql:self.rows=[(99,1)]
+                else:
+                    self.rows=[(11,'profile',False,json.dumps([{'role':'entity','value':'Example Surname'}]),'source','','')]
+            def fetchall(self):return self.rows
+        memory=SimpleNamespace(namespace='isolated',c=SimpleNamespace(cursor=lambda:Cursor()))
+        found=lexical_candidates(memory,'attribute of Surname',exact_anchor_required=False)
+        self.assertEqual([e['event_id'] for e in found['events']],[11])
 
 class GateTests(unittest.IsolatedAsyncioTestCase):
     async def test_gate_disabled_respects_chat_setting(self):
@@ -137,6 +158,20 @@ class GateTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(RuntimeError):
             await gate.enrich(p,config={'enabled':True,'always_retrieve':True},retrieve=fail)
         self.assertEqual(len(p.messages),1)
+
+    async def test_read_answer_phase_excludes_previous_generated_false_facts(self):
+        class Message:
+            def __init__(self,role,content):self.role,self.content=role,content
+        models=ModuleType('models');module=ModuleType('models.inference');module.ChatMessage=Message
+        p=SimpleNamespace(mcp_enabled=True,messages=[Message('user','earlier subject'),
+            Message('assistant','UNVERIFIED_OLD_ANSWER'),Message('tool','OLD_TOOL_RESULT'),Message('user','current subject')])
+        async def retrieve(q):return {'candidates':[event(8)],'plan':{'mode':'relational'}}
+        with patch.dict(sys.modules,{'models':models,'models.inference':module}):
+            await gate.enrich(p,config={'enabled':True,'read_answer_only':True},retrieve=retrieve)
+        self.assertEqual([m.role for m in p.messages],['system','user'])
+        self.assertNotIn('UNVERIFIED_OLD_ANSWER',str([m.content for m in p.messages]))
+        self.assertIn('original observation',p.messages[0].content)
+        self.assertEqual(p.messages[-1].content,'current subject')
 
     async def test_failure_stops_before_injection(self):
         p=SimpleNamespace(mcp_enabled=True,messages=[SimpleNamespace(role='user',content='question')])

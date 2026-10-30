@@ -87,6 +87,10 @@ async def enrich(payload, *, config=None, retrieve=None):
     if config.get('read_answer_only',False) and evidence.get('plan',{}).get('mode') in ('relational','semantic','hybrid','clarify'):
         # A read-only plan has already run. This request only verbalizes its
         # evidence; do not send it back into tool-catalog discovery.
+        # Generated answers/tool transcripts from earlier turns are not the
+        # authoritative memory for this read. This phase verbalizes ONE
+        # resolved query; older questions must not become fresh requests either.
+        payload.messages=[payload.messages[0],users[-1]]
         payload.tool_choice='none'
         payload.mcp_enabled=False
         payload.enable_tools=False
