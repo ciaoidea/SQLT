@@ -23,7 +23,7 @@ def inventory():
     names = set(FILES) | {'structure_sync.py', 'STRUCTURE.md'}
     names.update(p.name for p in ROOT.glob('test_*.py'))
     names.update(str(p.relative_to(ROOT)) for p in (ROOT / 'clients').glob('*.py'))
-    names.update('sqlt.net/' + n for n in ('live.js','map.html','map.css','map.js','server.py','planner.py','plan.schema.json','test_viewer.py','README.txt','vendor/cytoscape.min.js','vendor/LICENSE-cytoscape'))
+    names.update('sqlt.net/' + n for n in ('live.js','map.html','map.css','map.js','server.py','planner.py','plan.schema.json','test_viewer.py','test_plan_cache.py','README.txt','vendor/cytoscape.min.js','vendor/LICENSE-cytoscape'))
     return {n: digest(ROOT / n) for n in sorted(names) if (ROOT / n).is_file()}
 
 def save(path, value):

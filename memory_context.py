@@ -1,5 +1,7 @@
 """Bounded, read-only hybrid retrieval; no LLM, intent parser or domain rules."""
 import json
+import hashlib
+from pathlib import Path
 from datetime import datetime, timezone
 import math
 import re
@@ -85,6 +87,7 @@ async def assemble_context(call, namespace, query, lexical):
         candidates.append(item);size += n
         if len(candidates) >= 8:break
     return {'namespace':namespace, 'retrieval':'automatic_hybrid_read_only',
+        'memory_origin':{'installation':hashlib.sha256(str(Path(__file__).resolve().parent).encode()).hexdigest()[:24], 'namespace':namespace},
         'evidence_contract':{'retrieved_at_utc':datetime.now(timezone.utc).isoformat(),
             'live_source_checks':[], 'current_operational_status':'not_verified',
             'candidate_relevance':'not_verified',

@@ -123,6 +123,8 @@ class PlannerResponsivenessTests(unittest.IsolatedAsyncioTestCase):
   from unittest.mock import AsyncMock
   from server import MemoryBridge
   bridge=MemoryBridge.__new__(MemoryBridge);bridge.lock=asyncio.Lock();bridge.planning_lock=asyncio.Semaphore(1)
+  from planner import PlanCache
+  bridge.plan_cache=PlanCache()
   bridge._catalog=AsyncMock(return_value={});bridge._natural=AsyncMock(return_value={'done':True})
   bridge._table_unlocked=AsyncMock(return_value={'records':[]});started=threading.Event();release=threading.Event()
   def slow_plan(*args):started.set();release.wait(3);return {},0

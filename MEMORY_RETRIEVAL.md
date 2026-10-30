@@ -182,3 +182,49 @@ private choices are preserved when reinstalling without these flags. Changes
 require restarting Unsloth, not merely refreshing its browser page. Verify the
 HTTP chat route as well as standalone tool/model calls before declaring deployment
 active. Planning adds latency; quality and speed remain model/provider dependent.
+
+## Frontier-client fast path
+
+A frontier client can perform structured refinements with its own model during
+the answer turn. It does not need a second language-model planner before every
+turn. With no `.nlq.json`, the mandatory gate retains local hybrid retrieval.
+The persistent Codex instructions explicitly prefer direct `query_memory`
+refinements over starting the optional separate NLQ planner.
+
+An owner-only `.recall-http.json` in the installation may point the mandatory
+gate at its already-running authenticated MCP server:
+
+```json
+{"url":"http://YOUR_SERVER:8093/mcp","token_file":"/path/to/private/token"}
+```
+
+Both files must be owner-only. Before using evidence, the client verifies the
+installation fingerprint and namespace. A mismatch or unavailable backend stops
+generation; it never silently switches databases or answers without memory.
+Synchronous native clients use HTTP directly instead of launching Python and MCP
+server processes for every turn. Existing asynchronous callers retain a bounded
+subprocess route when necessary. Without this explicit configuration, stdio is
+still supported. Private HTTP/NLQ configurations are excluded from Git/packages.
+Restart already-open terminal clients to load the direct-call optimization;
+persistent conversation references and database contents are preserved.
+
+## Exact NLQ plan cache
+
+The viewer reuses schema-validated plans for identical questions in a bounded
+RAM cache (128 entries, 300-second expiry). The key includes the complete catalog
+fingerprint and server calendar date. Clarifications and plans containing clock
+times are not cached; failed execution evicts its plan. Similar questions,
+changed entities, negations, catalog changes and day rollovers do not reuse an
+entry merely because of semantic proximity.
+
+Only plans are cached: every request executes fresh database queries, including
+cache hits. Responses expose `plan_cache` and per-stage `retrieval_timing`.
+A cold, unseen NLQ question still needs its language-model planner. This cache
+improves repeated requests; it is not a claim of instant planning for new input.
+Tests verify fresh reads on hits, exact matching, expiry, bounds, catalog/date
+invalidation, immutable returned plans and failure eviction.
+
+Performance measurements distinguish memory retrieval from complete answers.
+Removing a preliminary planner and subprocess startups reduces host-side recall;
+model generation, tool round trips and optional graph focus still add latency.
+A complete cold answer must not be compared to a retrieval-only measurement.

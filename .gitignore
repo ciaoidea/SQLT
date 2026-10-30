@@ -20,3 +20,5 @@ verification*.json
 .structure
 
 .nlq.json
+
+.recall-http.json

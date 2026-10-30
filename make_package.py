@@ -16,7 +16,7 @@ def build(destination):
     paths+=sorted(ROOT.glob('test_*.py'))
     paths+=sorted((ROOT/'clients').glob('*.py'))
     viewer_files=('live.js','map.html','map.css','map.js','server.py','planner.py','plan.schema.json',
-                  'test_viewer.py','README.txt','vendor/cytoscape.min.js','vendor/LICENSE-cytoscape')
+                  'test_viewer.py','test_plan_cache.py','README.txt','vendor/cytoscape.min.js','vendor/LICENSE-cytoscape')
     paths += [ROOT/'sqlt.net'/name for name in viewer_files if (ROOT/'sqlt.net'/name).is_file()]
     destination=Path(destination);destination.parent.mkdir(parents=True,exist_ok=True)
     with tarfile.open(destination,'w:gz') as archive:

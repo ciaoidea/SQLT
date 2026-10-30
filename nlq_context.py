@@ -29,6 +29,7 @@ def context_from_result(data, namespace, root=ROOT):
         candidates.append(item);used+=size
         if len(candidates)>=8:break
     return {'namespace':namespace,'retrieval':'validated_natural_language_query','plan':plan,
+            'memory_origin':data['memory_origin'],
             'candidates':candidates,'clarification':plan.get('clarification',''),
             'outcome':'clarification_required' if plan['mode']=='clarify' else ('matching_records' if candidates else 'no_matching_records_for_this_plan'),
             'coverage':{'complete_database_search':False,'query_partial':data.get('partial',True),
@@ -36,7 +37,8 @@ def context_from_result(data, namespace, root=ROOT):
                         'scope':'Only the validated plan; not proof of absence in external sources or other frames.'},
             'evidence_contract':{'live_source_checks':[], 'current_operational_status':'not_verified',
                                  'empty_result_means':'no_support_for_this_query_not_service_up_or_down'},
-            'planning_seconds':data.get('planning_seconds')}
+            'planning_seconds':data.get('planning_seconds'),
+            'plan_cache':data.get('plan_cache'), 'retrieval_timing':data.get('retrieval_timing')}
 
 
 def natural_context(query,namespace):

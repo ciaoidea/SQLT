@@ -80,3 +80,22 @@ class OperationalGateTests(unittest.IsolatedAsyncioTestCase):
   self.assertEqual(result['operational_states'],[])
   self.assertTrue(result['operational_state_coverage']['linked_cases_truncated'])
   self.assertEqual(result['operational_state_coverage']['omitted_for_budget'],1)
+
+class HttpGateIsolationTests(unittest.IsolatedAsyncioTestCase):
+ async def test_other_installation_is_rejected_before_using_evidence(self):
+  from clients.memory_gate import _session_context
+  from types import SimpleNamespace
+  import tempfile
+  class Session:
+   async def call_tool(self,name,args):
+    return SimpleNamespace(isError=False,structuredContent={'candidates':[], 'memory_origin':{'installation':'other','namespace':'main'}},content=[])
+  with tempfile.TemporaryDirectory() as d:
+   with self.assertRaisesRegex(RuntimeError,'origin mismatch'):
+    await _session_context(Session(),Path(d),'main','question',True)
+ async def test_owner_only_http_configuration_is_required(self):
+  from clients.memory_gate import recall
+  import tempfile,json
+  with tempfile.TemporaryDirectory() as d:
+   root=Path(d);token=root/'token';token.write_text('x'*48);token.chmod(0o600)
+   config=root/'.recall-http.json';config.write_text(json.dumps({'url':'http://127.0.0.1:1/mcp','token_file':str(token)}));config.chmod(0o644)
+   with self.assertRaisesRegex(ValueError,'owner-only'):await recall(root,'main','question')

@@ -79,31 +79,65 @@ async def assemble(call,namespace,query,seed=None):
                 'For current external status, inspect the original source and follow-up messages before concluding.',
                 'Check experience_summary for pending interventions. On explicit outcome evidence close the matching experience; missing outcomes remain pending. Never treat these retrieved records as new observations.']}
 
+async def _session_context(session, root, namespace, query, verify_origin=False):
+    async def call(name,args):
+        result=await session.call_tool(name,args)
+        if result.isError:raise RuntimeError('Memory MCP retrieval failed: '+name)
+        data=result.structuredContent or json.loads(result.content[0].text)
+        if isinstance(data,dict) and isinstance(data.get('result'),dict):data=data['result']
+        return data
+    config_path=root/'.nlq.json'
+    config=json.loads(config_path.read_text()) if config_path.exists() else {}
+    nlq_configured=config_path.exists() or bool(os.environ.get('CORTEX_NLQ_SOCKET'))
+    nlq_namespace=config.get('namespace',os.environ.get('CORTEX_NLQ_NAMESPACE','main'))
+    strategy='natural_memory_context' if nlq_configured and namespace==nlq_namespace else 'memory_context'
+    hybrid=await call(strategy,{'namespace':namespace,'query':query[:8000]})
+    if verify_origin:
+        import hashlib
+        expected={'installation':hashlib.sha256(str(root.resolve()).encode()).hexdigest()[:24],'namespace':namespace}
+        if hybrid.get('memory_origin')!=expected:
+            raise RuntimeError('HTTP MCP origin mismatch; refusing another memory installation')
+    assembled=await assemble(call,namespace,query,seed={**hybrid,'events':hybrid['candidates']})
+    from live_dynamics import notify_memory_selection
+    notify_memory_selection(namespace,assembled['candidates'])
+    return assembled
+
+
 async def recall(root, namespace, query):
     from mcp import ClientSession, StdioServerParameters
+    config_path=root/'.recall-http.json'
+    if config_path.exists():
+        import httpx
+        from mcp.client.streamable_http import streamable_http_client
+        config=json.loads(config_path.read_text())
+        token_path=Path(config['token_file'])
+        for path in (config_path,token_path):
+            if path.stat().st_mode & 0o077:raise ValueError('MCP client configuration/token must be owner-only')
+        token=token_path.read_text().strip()
+        if len(token)<32:raise ValueError('Invalid MCP token')
+        async with httpx.AsyncClient(headers={'Authorization':'Bearer '+token},timeout=105) as client:
+            async with streamable_http_client(config['url'],http_client=client) as (rx,tx,_):
+                async with ClientSession(rx,tx) as session:
+                    await session.initialize()
+                    return await _session_context(session,root,namespace,query,True)
     from mcp.client.stdio import stdio_client
     parameters=StdioServerParameters(command=str(root/'.venv/bin/python'),args=[str(root/'mcp_server.py')],env={**os.environ,'CORTEX_LIVE_ORIGIN':'gate'})
     async with stdio_client(parameters) as streams:
         async with ClientSession(*streams) as session:
             await session.initialize()
-            async def call(name,args):
-                result=await session.call_tool(name,args)
-                if result.isError:raise RuntimeError('Memory MCP retrieval failed: '+name)
-                return result.structuredContent or json.loads(result.content[0].text)
-            config_path=root/'.nlq.json'
-            config=json.loads(config_path.read_text()) if config_path.exists() else {}
-            nlq_configured=config_path.exists() or bool(os.environ.get('CORTEX_NLQ_SOCKET'))
-            nlq_namespace=config.get('namespace',os.environ.get('CORTEX_NLQ_NAMESPACE','main'))
-            strategy='natural_memory_context' if nlq_configured and namespace==nlq_namespace else 'memory_context'
-            hybrid=await call(strategy,{'namespace':namespace,'query':query[:8000]})
-            assembled=await assemble(call,namespace,query,seed={**hybrid,'events':hybrid['candidates']})
-            from live_dynamics import notify_memory_selection
-            notify_memory_selection(namespace,assembled['candidates'])
-            return assembled
+            return await _session_context(session,root,namespace,query)
+
 
 def retrieve(root,namespace,text):
+    if (root/'.recall-http.json').exists():
+        try:asyncio.get_running_loop()
+        except RuntimeError:
+            # Native synchronous clients reuse the already-running MCP server;
+            # no per-turn Python subprocess or model planner is started.
+            try:return asyncio.run(asyncio.wait_for(recall(root,namespace,text),timeout=110))
+            except Exception:raise RuntimeError('Richiamo obbligatorio Cortex fallito: richiesta non inviata al modello. Nessun fallback silenzioso.') from None
     result=subprocess.run([str(root/'.venv/bin/python'),'-m','clients.memory_gate',namespace],
-                          cwd=root,input=text,text=True,capture_output=True,timeout=60)
+                          cwd=root,input=text,text=True,capture_output=True,timeout=110 if (root/'.nlq.json').exists() else 60)
     if result.returncode:raise RuntimeError('Richiamo obbligatorio Cortex fallito: richiesta non inviata al modello. Nessun fallback silenzioso.')
     return json.loads(result.stdout)
 

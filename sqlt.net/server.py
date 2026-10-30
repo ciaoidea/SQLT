@@ -10,7 +10,7 @@ from pathlib import Path
 import sys
 import threading
 import time
-from planner import plan
+from planner import plan, PlanCache
 from urllib.parse import urlsplit, parse_qs
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -153,6 +153,7 @@ class MemoryBridge:
     def __init__(self, namespace):
         self.namespace = namespace
         self.traces = []
+        self.plan_cache = PlanCache()
         self.ready = threading.Event()
         self.loop = asyncio.new_event_loop()
         self.thread = threading.Thread(target=self._worker, daemon=True)
@@ -291,11 +292,33 @@ class MemoryBridge:
     async def _browse(self, mode, query):
         if mode=='natural':
             progress('planning')
+            started=time.perf_counter()
             async with self.lock:catalog=await self._catalog()
+            catalog_seconds=time.perf_counter()-started
+            queued=time.perf_counter()
             async with self.planning_lock:
-                specification,seconds=await asyncio.to_thread(plan,query,catalog)
+                queue_seconds=time.perf_counter()-queued
+                cached=self.plan_cache.get(query,catalog)
+                if cached is None:
+                    specification,seconds=await asyncio.to_thread(plan,query,catalog)
+                    self.plan_cache.put(query,catalog,specification)
+                    cache_info={'hit':False,'age_seconds':0,'ttl_seconds':self.plan_cache.ttl}
+                else:
+                    specification,age=cached;seconds=0.
+                    cache_info={'hit':True,'age_seconds':round(age,3),'ttl_seconds':self.plan_cache.ttl}
             progress('plan_ready',group_by=specification.get('group_by',[]),mode=specification.get('mode',''))
-            async with self.lock:return await self._natural(query,specification,seconds)
+            execution_started=time.perf_counter()
+            try:
+                async with self.lock:result=await self._natural(query,specification,seconds)
+            except BaseException:
+                self.plan_cache.discard(query,catalog)
+                raise
+            result['plan_cache']=cache_info
+            result['retrieval_timing']={'catalog_seconds':round(catalog_seconds,4),
+                                       'planner_queue_seconds':round(queue_seconds,4),
+                                       'planning_seconds':round(seconds,4),
+                                       'execution_seconds':round(time.perf_counter()-execution_started,4)}
+            return result
         async with self.lock:
             self.traces = []
             if mode == 'semantic':

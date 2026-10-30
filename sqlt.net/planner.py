@@ -1,5 +1,9 @@
 """LLM-to-validated query plans, without executing model-generated SQL or tools."""
 import json
+import copy
+import hashlib
+import re
+from collections import OrderedDict
 import os
 from pathlib import Path
 import subprocess
@@ -23,6 +27,34 @@ SCHEMA = {
   'semantic_query':{'type':'string'},'group_by':{'type':'array','items':{'type':'string'},'maxItems':4},
   'clarification':{'type':'string'}},
  'required':['dataset','title','mode','queries','semantic_query','group_by','clarification']}
+
+
+class PlanCache:
+ """Exact-question, catalog/day-scoped RAM cache. Never caches query results."""
+ def __init__(self,capacity=128,ttl=300,clock=None,day=None):
+  self.capacity=capacity;self.ttl=ttl;self.clock=clock or time.monotonic
+  self.day=day or (lambda:datetime.now().astimezone().date().isoformat())
+  self.items=OrderedDict()
+ def key(self,question,catalog):
+  raw=json.dumps([self.day(),question.strip(),catalog],ensure_ascii=False,sort_keys=True,separators=(',',':'))
+  return hashlib.sha256(raw.encode()).hexdigest()
+ def get(self,question,catalog):
+  now=self.clock()
+  for k in list(self.items):
+   if now-self.items[k][0]>=self.ttl:del self.items[k]
+  key=self.key(question,catalog);entry=self.items.get(key)
+  if entry is None:return None
+  self.items.move_to_end(key)
+  return copy.deepcopy(entry[1]),now-entry[0]
+ def discard(self,question,catalog):
+  self.items.pop(self.key(question,catalog),None)
+ def put(self,question,catalog,specification):
+  if specification.get('mode') not in ('relational','semantic','hybrid'):return
+  # Concrete clock-time constraints must be replanned; no temporal-language parser.
+  if re.search(r'\d{2}:\d{2}',json.dumps(specification,ensure_ascii=False)):return
+  key=self.key(question,catalog)
+  self.items[key]=(self.clock(),copy.deepcopy(specification));self.items.move_to_end(key)
+  while len(self.items)>self.capacity:self.items.popitem(last=False)
 
 
 def plan(question, catalog):
