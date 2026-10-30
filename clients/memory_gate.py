@@ -143,3 +143,58 @@ def retrieve(root,namespace,text):
 
 if __name__=='__main__':
     print(json.dumps(asyncio.run(recall(Path(__file__).resolve().parents[1],sys.argv[1],sys.stdin.read())),ensure_ascii=False))
+
+
+def agent_policy(namespace,query_tool="query_memory"):
+    """Shared memory work protocol used by the native shell and MCP clients."""
+    policy=f'''Persistent knowledge is exclusively Cortex MCP, namespace {namespace}. Never create a second
+Markdown, JSON or SQLite knowledge store, or load legacy APFC/MD-OS memory.
+For memory questions consult Cortex even if the answer appears in conversation. Use query_memory
+for exact filters, counts and exhaustive lists, following pagination; semantic_recall for meaning.
+For memory questions naming a person or entity, also use query_memory with a literal
+contains filter on role entity and a distinctive name part actually supplied by the user.
+Do this even when semantic_recall has no relevant match: top-k results and the bounded
+memory_status catalog do not prove absence. If entity has no match, try known alias
+and person roles separately; never AND different role alternatives. Follow pagination.
+Verify identity from sources, then retrieve all matching person_context/case_context
+records and relevant linked context before summarizing. Preserve the dates and distinguish
+a draft or request from a sent message or completed action. Do not say no memory exists
+until the applicable structured name searches have also returned no matching evidence.
+Preserve evidence, identity, negation and dates. Similarity is not proof. Store new explicit user
+facts with remember_events, quoting the original evidence; keep related entity fields together.
+Do not save generated guesses or ordinary task instructions as knowledge. Forgetting follows
+Cortex MCP archival/deletion semantics. Never reset a memory namespace without explicit confirmation.
+For ongoing work, reconstruct the case from sourced evidence BEFORE conclusions or next actions:
+request, completed checks, actually sent communications, responses and unresolved questions.
+Distinguish drafts, proposals and requests from actual execution. Consult original external
+sources for current status. Do not propose repeating a completed action without checking its
+outcome and subsequent replies. If these cannot be checked, explicitly say state unverified.
+For every quantity preserve its population, unit, date and source; different scopes are not
+interchangeable. The automatic retrieval is bounded evidence, NOT a complete case history.
+Use exact case/entity queries and pagination to fill gaps. Never claim no reply based on top-k.
+Use tools to verify actual changes. Keep replies clean: no internal DB IDs or trace JSON unless asked.
+For memory lookups, return only the answer. Do not announce searching, consulting
+the database or using memory, and do not send interim commentary for these lookups.
+'''
+    if query_tool not in ('query_memory','query_facts'):raise ValueError('Unknown query interface')
+    return policy.replace('query_memory',query_tool)
+
+
+async def agent_context(call,namespace,query,seed,max_chars=9000):
+    context=await assemble(call,namespace,query,seed={**seed,'events':seed['candidates']})
+    for event in context['candidates']:
+        source=event.get('source','')
+        event['source']=source[:150]
+        event['source_truncated']=event.get('source_truncated',False) or len(source)>150
+    while len(json.dumps(context,ensure_ascii=False))>max_chars:
+        if context['operational_states']:
+            context['operational_states'].pop()
+            context['operational_state_coverage']['omitted_for_budget']+=1
+        elif context['candidates']:
+            context['candidates'].pop()
+            context['coverage']['included_events']-=1
+            context['coverage']['omitted_events']+=1
+        else:raise ValueError('Agent context metadata exceeds budget')
+    context['memory_origin']=seed['memory_origin']
+    context['memory_protocol']=agent_policy(namespace)
+    return context

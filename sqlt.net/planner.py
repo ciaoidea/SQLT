@@ -124,6 +124,11 @@ APFC grouping can use any field in that dataset. Memory entities are episodic la
 APFC entities are explicitly registered identities. Do not substitute them silently.
 Title in English. Allowed operators are literal, not SQL wildcards; numerical operands are
 strings parsed as strict numbers. For exists/missing use null. Avoid unnecessary filters.
+Use the shared memory_protocol in the catalog for choosing complete source coverage,
+within this read-only plan compiler. Do not execute tools or store anything.
+agent_context is the native shell's bounded starting evidence, NOT the complete
+answer. Prefer checking all relevant records over restricting to the first matching
+frame. Preserve all explicit scope restrictions. Return only the validated plan.
 CATALOG: '''+json.dumps(catalog,ensure_ascii=False)+'\nCURRENT SERVER DATE AND TIME: '+datetime.now().astimezone().isoformat()+'\nUSER QUESTION: '+json.dumps(question,ensure_ascii=False)
  command=['codex','exec','--ignore-user-config','--skip-git-repo-check','--ephemeral',
           '--sandbox','read-only','--disable','shell_tool','--disable','apps',

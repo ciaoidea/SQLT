@@ -59,6 +59,13 @@ def query(memory,filters,frame=None,negated=False,limit=100,offset=0,count_only=
         with memory.c.cursor() as cursor:
             cursor.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ')
             cursor.execute('START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY')
+            if select_roles is not None:
+                cursor.execute('SELECT DISTINCT b.role FROM episodic_bindings b '
+                               'JOIN episodic_events e ON e.id=b.event_id '
+                               'WHERE e.namespace=%s AND e.active=TRUE',(memory.namespace,))
+                unknown=select_roles-{row[0] for row in cursor.fetchall()}
+                if unknown:
+                    raise ValueError('Unknown stored attributes in select_roles: '+', '.join(sorted(unknown))+'. Omit select_roles to inspect complete stored attributes.')
             count_sql='SELECT COUNT(*) FROM episodic_events e WHERE '+clause
             cursor.execute(count_sql,params)
             if include_sql:trace.append(dict(sql=count_sql,parameters=list(params)))
@@ -84,3 +91,20 @@ def query(memory,filters,frame=None,negated=False,limit=100,offset=0,count_only=
                       'Total covers all matches. Follow next_offset for remaining pages; concurrent changes can affect later pages.')
     if include_sql:result['sql_trace']=trace
     return result
+
+
+def subject_facts(events):
+    """Logical fact view: exact subject labels, all attributes, no inferred joins."""
+    subjects={}
+    for event in events:
+        labels=list(dict.fromkeys(b['value'] for b in event['roles'] if b['role']=='entity'))
+        if len(labels)!=1:continue  # A relation with several subjects is not a property of each.
+        scope=tuple(sorted((b['role'],b['value']) for b in event['roles'] if b['role'] in ('scope','company','customer','tenant','organization')))
+        for label in labels:
+            subject=subjects.setdefault((label,scope),{'entity':label,'scope':[{'role':k,'value':v} for k,v in scope],'attributes':{}})
+            for binding in event['roles']:
+                if binding['role']=='entity':continue
+                entries=subject['attributes'].setdefault(binding['role'],[])
+                entries.append({'value':binding['value'],'event_id':event['event_id'],
+                                'negated':event['negated'],'time':event.get('time','')})
+    return list(subjects.values())

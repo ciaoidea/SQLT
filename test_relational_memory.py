@@ -5,6 +5,27 @@ from episodic_memory import EpisodicMemory
 from relational_memory import query
 
 
+class SubjectFactViewTests(unittest.TestCase):
+    def test_distinct_scopes_and_multi_subject_relations_are_not_merged(self):
+        from relational_memory import subject_facts
+        def row(i,roles):return {'event_id':i,'negated':False,'roles':roles}
+        groups=subject_facts([row(1,[{'role':'entity','value':'Same'},{'role':'company','value':'one'}]),
+                              row(2,[{'role':'entity','value':'Same'},{'role':'company','value':'two'}]),
+                              row(3,[{'role':'entity','value':'A'},{'role':'entity','value':'B'},{'role':'property','value':'unspecified owner'}])])
+        self.assertEqual(len(groups),2)
+        self.assertNotEqual(groups[0]['scope'],groups[1]['scope'])
+
+    def test_exact_subject_grouping_preserves_conflicts_and_provenance(self):
+        from relational_memory import subject_facts
+        rows=[{'event_id':1,'negated':False,'time':'2000-01-01','roles':[{'role':'entity','value':'Example object'},{'role':'property','value':'old'}]},
+              {'event_id':2,'negated':False,'time':'2001-01-01','roles':[{'role':'entity','value':'Example object'},{'role':'property','value':'new'},{'role':'function','value':'main purpose'}]},
+              {'event_id':3,'negated':False,'time':'','roles':[{'role':'entity','value':'Example object note'},{'role':'context','value':'incidental'}]}]
+        groups=subject_facts(rows)
+        self.assertEqual(len(groups),2)
+        self.assertEqual([v['value'] for v in groups[0]['attributes']['property']],['old','new'])
+        self.assertEqual(groups[0]['attributes']['function'][0]['event_id'],2)
+        self.assertNotIn('context',groups[0]['attributes'])
+
 class RelationalTests(unittest.TestCase):
     def setUp(self):
         self.m=EpisodicMemory('check_sql_'+uuid.uuid4().hex[:10])
@@ -26,6 +47,11 @@ class RelationalTests(unittest.TestCase):
         result=query(self.m,self.filters)
         self.assertEqual(result['total'],2);self.assertTrue(result['complete'])
         self.assertEqual([e['roles'][0]['value'] for e in result['events']],['alpha','beta'])
+    def test_unknown_projection_is_rejected_instead_of_silent_empty_attributes(self):
+        with self.assertRaisesRegex(ValueError,'Unknown stored attributes'):
+            query(self.m,self.filters,select_roles=['unknown_container_key'])
+        self.assertEqual(query(self.m,self.filters,select_roles=['entity'])['total'],2)
+
     def test_pagination_count_and_projection(self):
         first=query(self.m,self.filters,limit=1,select_roles=['entity'],include_source=False)
         self.assertEqual(first['total'],2);self.assertTrue(first['has_more']);self.assertFalse(first['complete'])

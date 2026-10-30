@@ -204,7 +204,7 @@ class ExplorationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('1234567890abcdef',p.messages[0].content)
         self.assertEqual(p.messages[-1].content,'Current question')
     async def test_preload_uses_real_names_and_preserves_validation_schema(self):
-        spec={'type':'function','function':{'name':'mcp__example__query_memory','description':'real tool',
+        spec={'type':'function','function':{'name':'mcp__example__query_facts','description':'real tool',
               'parameters':{'type':'object','properties':{'limit':{'type':'integer','minimum':1,'maximum':100,'description':'help'}},'additionalProperties':False}}}
         gate.EXPLORATION_SCOPE.set('example')
         result=gate.exploration_listing(lambda listed:[],[({'id':'example'},[],[spec])])

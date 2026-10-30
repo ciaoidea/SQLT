@@ -62,7 +62,7 @@ def main():
     p.add_argument('--backend-root',type=Path,required=True)
     p.add_argument('--server-id')
     p.add_argument('--namespace',default=None)
-    p.add_argument('--retrieval-tool',choices=['memory_context','natural_memory_context'])
+    p.add_argument('--retrieval-tool',choices=['memory_context','natural_memory_context','agent_memory_context'])
     mode=p.add_mutually_exclusive_group()
     mode.add_argument('--read-answer-only',dest='read_answer_only',action='store_const',const=True,default=None)
     mode.add_argument('--allow-follow-up-tools',dest='read_answer_only',action='store_const',const=False)

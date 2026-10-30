@@ -1,3 +1,4 @@
+import json
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -99,3 +100,26 @@ class HttpGateIsolationTests(unittest.IsolatedAsyncioTestCase):
    root=Path(d);token=root/'token';token.write_text('x'*48);token.chmod(0o600)
    config=root/'.recall-http.json';config.write_text(json.dumps({'url':'http://127.0.0.1:1/mcp','token_file':str(token)}));config.chmod(0o644)
    with self.assertRaisesRegex(ValueError,'owner-only'):await recall(root,'main','question')
+
+
+class SharedAgentProtocolTests(unittest.IsolatedAsyncioTestCase):
+ async def test_shell_uses_shared_memory_protocol(self):
+  from clients.memory_gate import agent_policy
+  from clients.shell_chat import instructions
+  self.assertTrue(instructions('isolated').endswith(agent_policy('isolated')))
+  self.assertIn('namespace isolated',agent_policy('isolated'))
+  self.assertIn('pagination',agent_policy('isolated'))
+ async def test_agent_context_reuses_assembly_and_reports_budget_omissions(self):
+  from clients.memory_gate import agent_context,agent_policy
+  seed={'memory_origin':{'installation':'example','namespace':'isolated'},'candidates':[
+      {'event_id':i,'frame':'example','roles':[{'role':'entity','value':'x'*1400+str(i)}],
+       'source':'s'*600,'negated':False,'time':'','place':''} for i in range(1,9)]}
+  async def call(name,args):
+   self.assertEqual(name,'apfc_context')
+   return {'cases':[{'example':'x'*3000}],'has_more':False}
+  result=await agent_context(call,'isolated','generic question',seed,max_chars=6000)
+  policy=result.pop('memory_protocol')
+  self.assertEqual(policy,agent_policy('isolated'))
+  self.assertGreater(result['coverage']['omitted_events'],0)
+  self.assertGreater(result['operational_state_coverage']['omitted_for_budget'],0)
+  self.assertLess(len(json.dumps(result,ensure_ascii=False)),6300)

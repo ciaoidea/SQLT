@@ -110,6 +110,29 @@ def query_memory(filters: Annotated[list[MemoryFilter],Field(max_length=16)],
                                        select_roles,include_source,include_sql)
 
 @mcp.tool(annotations=READ)
+@observed
+def query_facts(filters: Annotated[list[MemoryFilter],Field(max_length=16)],
+                negated: bool | None=False,limit: int=100,offset: int=0,
+                count_only: bool=False,namespace: str='main') -> dict:
+    """Find facts and properties across ALL storage frames, with exact subject grouping.
+
+    Use for ordinary questions about objects, people, procedures, incidents and
+    technical properties. Same AND filters and pagination as query_memory.
+    No frame restriction or attribute projection: related facts cannot disappear
+    solely because they are in another physical record type. subjects combines
+    attributes ONLY for identical entity labels, preserving every value, date,
+    polarity and event_id. Conflicts are not overwritten; shared labels do not
+    establish aliases or causality. Sources are read separately with memory_event.
+    count_only returns exact matching RECORD count; subjects are page-local,
+    never an exhaustive entity count. Follow has_more for all results.
+    """
+    with memory(namespace) as m:
+        result=relational_memory.query(m,[f.model_dump() for f in filters],None,negated,limit,offset,count_only,None,False,False)
+    result['subjects']=relational_memory.subject_facts(result['events'])
+    result['source_reader']='memory_event'
+    return result
+
+@mcp.tool(annotations=READ)
 def focus_memory(request_id: str,
                  event_ids: Annotated[list[Annotated[int, Field(strict=True,gt=0)]],Field(max_length=128)],
                  namespace: str='main') -> dict:
@@ -523,6 +546,27 @@ async def memory_context(query: str, namespace: str='main') -> dict:
             args={**args,'filters':[MemoryFilter(**f) for f in args['filters']]}
         return await asyncio.to_thread(globals()[name],**args)
     return await assemble_context(call,namespace,query,matches)
+
+@mcp.tool(annotations=READ)
+async def agent_memory_context(query: str, namespace: str='main', graph_turn: bool=False, graph_model: str | None=None) -> dict:
+    """Native Cortex hybrid recall, linked operational state and shared agent protocol.
+
+    No isolated viewer planner. The client model chooses follow-up MCP queries.
+    """
+    from clients.memory_gate import agent_context,agent_policy
+    from live_dynamics import notify_chat_turn,notify_context_focus
+    import asyncio
+    request_id=notify_chat_turn(namespace,model=graph_model,engine='Unsloth MCP') if graph_turn else None
+    seed=await memory_context(query,namespace)
+    async def call(name,args):
+        if name=='query_memory':args={**args,'filters':[MemoryFilter(**f) for f in args['filters']]}
+        return await asyncio.to_thread(globals()[name],**args)
+    result=await agent_context(call,namespace,query,seed)
+    result['memory_protocol']=agent_policy(namespace,query_tool='query_facts')
+    if request_id:
+        notify_context_focus(namespace,request_id,result['candidates'])
+        result['live_graph_request_id']=request_id
+    return result
 
 @mcp.tool(annotations=READ)
 @observed
