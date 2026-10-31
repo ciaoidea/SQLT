@@ -187,7 +187,7 @@ model activations. See [Live dynamics](LIVE_DYNAMICS.md) for limits and tests.
 
 ## Automatic memory before generation
 
-The terminal memory gate now combines literal value anchors, semantic retrieval,
-and exact identity expansion. An optional Unsloth integration performs the same
+The terminal memory gate combines independent identity discovery, literal value
+anchors, semantic rank fusion, and exact identity expansion. An optional Unsloth integration performs the same
 read-only lookup before generation, independently of model tool selection.
 See [MEMORY_RETRIEVAL.md](MEMORY_RETRIEVAL.md) for installation, limits and tests.

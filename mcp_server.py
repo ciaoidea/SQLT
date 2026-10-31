@@ -528,7 +528,7 @@ def apfc_status(namespace: str='main') -> dict:
     with memory(namespace) as m:return APFC(m).status()
 
 @mcp.tool(annotations=READ)
-async def memory_context(query: str, namespace: str='main') -> dict:
+async def memory_context(query: str, namespace: str='main', graph_turn: bool=False, graph_model: str | None=None) -> dict:
     """Automatic hybrid memory lookup before generation, for any topic or model.
 
     Combines literal stored values, semantic candidates and query_memory expansion.
@@ -536,16 +536,22 @@ async def memory_context(query: str, namespace: str='main') -> dict:
     """
     if not isinstance(query,str) or not 1<=len(query)<=8000:
         raise ValueError('Query must contain 1..8000 characters')
-    from memory_context import lexical_candidates, assemble_context
+    from memory_context import hybrid_candidates, assemble_context
     import asyncio
+    from live_dynamics import notify_chat_turn,notify_context_focus
+    request_id=notify_chat_turn(namespace,model=graph_model,engine='Unsloth MCP') if graph_turn else None
     def lexical():
-        with memory(namespace) as m:return lexical_candidates(m,query)
+        with memory(namespace) as m:return hybrid_candidates(m,query)
     matches=await asyncio.to_thread(lexical)
     async def call(name,args):
         if name=='query_memory':
             args={**args,'filters':[MemoryFilter(**f) for f in args['filters']]}
         return await asyncio.to_thread(globals()[name],**args)
-    return await assemble_context(call,namespace,query,matches)
+    result=await assemble_context(call,namespace,query,matches)
+    if request_id:
+        notify_context_focus(namespace,request_id,result['candidates'])
+        result['live_graph_request_id']=request_id
+    return result
 
 @mcp.tool(annotations=READ)
 async def agent_memory_context(query: str, namespace: str='main', graph_turn: bool=False, graph_model: str | None=None) -> dict:

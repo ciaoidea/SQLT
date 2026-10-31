@@ -7,14 +7,21 @@ tool, and incorrectly report that the fact is unavailable.
 `memory_context(query, namespace)` is a read-only MCP tool for host-driven
 retrieval before generation. It combines:
 
-1. Bounded literal matching against active stored values, using Unicode tokens,
-   parameterized SQL, namespace isolation and exact-value anchors. There is no
-   natural-language grammar, branch list or topic-specific lookup rule.
-2. Semantic retrieval through the existing multilingual encoder.
-3. `query_memory` expansion of actual stored identities.
+1. Independent identity discovery over typed subject, alias and participant
+   fields. A supplied name fragment need not equal an entire stored label.
+2. Bounded literal matching against active stored values and semantic retrieval
+   through the existing multilingual encoder.
+3. Rank fusion protecting the best identity and exact-value candidates, followed
+   by `query_memory` expansion of actual stored identities.
 
-Exact-value anchors take precedence over incidental generic words. Without a
-usable literal anchor, semantic candidates remain available. Returned records
+All SQL is parameterized and namespace-scoped. There is no natural-language
+grammar, person-name list or topic-specific lookup rule. The presence of one
+retrieval channel no longer discards the others. Distinctive literal identity
+evidence can constrain identity and semantic candidates to explicit matching
+bindings, while exact-value evidence remains available. Without a usable
+identity anchor, semantic retrieval remains available. The ranking and scoping
+thresholds are heuristics, not confidence estimates or proofs of relevance.
+Returned records
 include identities, field roles, negation, dates and source excerpts. Context is
 bounded; omitted records and incomplete coverage are explicit. Retrieved material
 is evidence, never executable instructions or new user observations.
@@ -44,7 +51,8 @@ installer as the same OS user that runs Unsloth:
 ```sh
 python integrations/unsloth/install.py \
   --backend-root /path/to/site-packages/studio/backend \
-  --server-id YOUR_UNSLOTH_MCP_SERVER_ID
+  --server-id YOUR_UNSLOTH_MCP_SERVER_ID \
+  --retrieval-tool memory_context --read-answer-only
 ```
 
 Restart Unsloth Studio. Enable MCP in the chat and keep that server enabled.
@@ -53,6 +61,13 @@ helpers; no token is embedded in the integration or passed on command lines.
 It injects bounded, explicitly untrusted evidence into the server-side request,
 without adding it to saved chat history. A new request replaces the context block.
 Disabling MCP, the configured server, or the integration disables this hook.
+
+The recommended small-model mode performs one host-driven context request and
+then verbalizes its evidence without model-directed tool discovery or repeated
+lookups. It retains facts, provenance excerpts and coverage constraints, and
+omits agent instructions and redundant retrieval diagnostics. Fixed policy and
+variable evidence use separate messages to permit prefix-cache reuse. The native
+Cortex terminal retains its existing agent execution and follow-up queries.
 
 The hook runs at Unsloth's common chat-completion generation entry point and is
 independent of model tool selection. With retrieval opted in, an unavailable or
@@ -167,9 +182,10 @@ For the portable loopback HTTP viewer, `.nlq.json` may instead contain
 `{"url":"http://127.0.0.1:PORT"}`. Only a loopback HTTP destination or an explicit
 local UNIX socket is accepted. The source/namespace fingerprint must still match.
 
-For read-only NLQ answer generation, the optional Unsloth `read_answer_only: true`
-setting suppresses further tool discovery after a validated relational, semantic
-or hybrid read plan has executed. The model receives those results for language
+For read-only answer generation, Unsloth's `read_answer_only: true` setting
+suppresses further tool discovery after the selected context retrieval has
+executed, including fast `memory_context` without a separate NLQ planner.
+The model receives those results for language
 output instead of re-searching tool names for the requested data. This affects
 that request only; it is not a database permission boundary. Additional tools are
 not available during this final read-answer phase, so partial coverage must be
@@ -266,11 +282,11 @@ NLQ discovery restricts literal anchors to typed identity bindings (`entity`, `p
 
 In the dedicated `read_answer_only` phase, the generation payload contains only the latest original user request and the freshly retrieved evidence. Earlier generated answers, tool transcripts and older questions are not repassed as facts or new requests. This prevents an earlier generated error from being recycled as memory evidence; the saved conversation is unchanged. This phase is read-only verbalization, not general tool-agent execution. It does not guarantee that an arbitrary generator will faithfully use the remaining evidence.
 
-### Model-directed exploration in Unsloth
+### Optional model-directed exploration in Unsloth
 `install.py --allow-follow-up-tools` enables `explore=true` and disables answer-only mode. Mandatory pre-retrieval remains. The model then chooses its own MCP calls, including exact queries, cosine retrieval, source reads, counts and pagination. The configured Cortex server's real `query_facts`, `semantic_recall`, `memory_event`, `memory_status` and `focus_memory` schemas are listed directly; only schema documentation verbosity is reduced, with property names, constraints and defaults preserved. Remaining MCP tools retain Unsloth's existing discovery and permission handling. A request-scoped context variable prevents changing the catalog for unrelated requests. Built-in execution/approval switches are preserved. Older generated answers are excluded as factual evidence; prior user turns are provided as reference context rather than new requests. A live graph request ID allows the model to select supporting memories after exploration. This enables the agent loop, not frontier-model accuracy; more graph activity is not a quality metric.
 
 ### Shared shell memory path
-The native terminal's memory work protocol is defined once in `clients.memory_gate.agent_policy`; `clients.shell_chat.instructions` uses it unchanged. `agent_memory_context` reuses the terminal's hybrid seed and operational-state assembly, with an explicit small-window budget and omission counts. The Unsloth host injects that protocol instead of sending ordinary conversation through the isolated viewer planner. Configure it with `--retrieval-tool agent_memory_context --allow-follow-up-tools` and restart Studio. The natural-query viewer also receives this bounded context and protocol, while retaining validated plan generation and its existing read-only SQL executor.
+The native terminal's memory work protocol is defined in `clients.memory_gate.agent_policy`; `clients.shell_chat.instructions` uses it unchanged. `agent_memory_context` reuses the terminal's hybrid seed and operational-state assembly, with an explicit small-window budget and omission counts. The optional exploratory Unsloth adapter uses a compact client protocol and this bounded evidence instead of sending ordinary conversation through the isolated viewer planner. Configure that experimental mode with `--retrieval-tool agent_memory_context --allow-follow-up-tools` and restart Studio. It can add model/tool rounds and is not the recommended fast path for small models. The natural-query viewer also receives bounded context and the native protocol, while retaining validated plan generation and its existing read-only SQL executor.
 
 `query_facts` is the normal small-model fact interface: all storage frames, all attributes, source text read separately with `memory_event`. Its `subjects` view groups attributes only under exact entity labels and explicit stored scope; multi-subject relations remain in the raw events. Conflicting values, dates, polarity and source event IDs are preserved. No aliases or cross-record causal relations are inferred. Record counts and pagination keep the same semantics as `query_memory`, which remains the advanced raw-frame interface. Invalid attribute projections are rejected instead of silently returning empty attributes.
 

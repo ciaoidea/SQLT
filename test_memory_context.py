@@ -30,10 +30,11 @@ class ContextTests(unittest.IsolatedAsyncioTestCase):
             if name=='semantic_recall':return {'events':[event(99,'Unrelated')]}
             return {'events':[event(2,source='verified prior source')],'total':30,'has_more':True}
         r=await assemble_context(call,'isolated','arbitrary question',{'events':[event(1)],'terms':[]})
-        self.assertEqual([n for n,_ in calls],['semantic_recall','query_memory'])
+        self.assertEqual([n for n,_ in calls],['semantic_recall','query_memory','query_memory'])
         self.assertEqual(calls[1][1]['namespace'],'isolated')
         self.assertEqual(calls[1][1]['filters'],[{'role':'entity','operator':'eq','value':'Example'}])
-        self.assertNotIn(99,[e['event_id'] for e in r['candidates']])
+        self.assertIn(99,[e['event_id'] for e in r['candidates']])
+        self.assertEqual(r['evidence_contract']['candidate_relevance'],'not_verified')
         self.assertTrue(r['linked_searches'][0]['has_more'])
         self.assertFalse(r['coverage']['complete'])
     async def test_negative_statements_preserved_and_context_bounded(self):
@@ -68,6 +69,72 @@ class LexicalTests(unittest.TestCase):
         r=lexical_candidates(memory,'A long question with numerical identifiers 00742. '*50)
         self.assertEqual(r['events'],[])
         self.assertFalse(r['complete'])
+
+class HybridFusionTests(unittest.IsolatedAsyncioTestCase):
+    def test_partial_identity_is_protected_without_dropping_semantic_or_values(self):
+        from memory_context import fuse_candidates
+        rows=fuse_candidates([event(1,'Subject Identifier')],[event(2,'Literal value')],
+                             [event(3,'Semantic result'),event(1,'Subject Identifier')])
+        self.assertEqual([e['event_id'] for e in rows[:2]],[1,2])
+        self.assertEqual({e['event_id'] for e in rows},{1,2,3})
+
+    def test_identity_mention_cannot_displace_the_actual_subject(self):
+        from memory_context import identity_candidates
+        class Cursor:
+            def __enter__(self):return self
+            def __exit__(self,*args):pass
+            def execute(self,sql,params):
+                if sql.startswith('SELECT b.event_id,b.role,b.label'):
+                    self_case.assertIn('e.namespace=%s',sql)
+                    self_case.assertIn('isolated',params)
+                    self.rows=([(7,'entity','example identifier'),(9,'person','identifier')]
+                               if 'identifier' in params[-1] else [])
+                else:
+                    self.rows=[(7,'arbitrary_frame',False,json.dumps([{'role':'entity','value':'example identifier'}]),'source','',''),
+                               (9,'another_frame',False,json.dumps([{'role':'entity','value':'other subject'}]),'source','','')]
+            def fetchall(self):return self.rows
+        self_case=self
+        memory=SimpleNamespace(namespace='isolated',c=SimpleNamespace(cursor=lambda:Cursor()))
+        result=identity_candidates(memory,'requested property of Identifier')
+        self.assertEqual(result['events'][0]['event_id'],7)
+
+    async def test_identity_survives_empty_literal_and_wrong_semantic_candidates(self):
+        from memory_context import assemble_context
+        contact=event(7,'Example Identifier');contact['roles'].append({'role':'arbitrary_property','value':'00042'})
+        async def call(name,args):
+            if name=='semantic_recall':return {'events':[event(99,'Other Subject')]}
+            return {'events':[],'total':0,'has_more':False}
+        result=await assemble_context(call,'isolated','property of Identifier',
+            {'events':[],'identity_events':[contact],'terms':[]})
+        self.assertEqual(result['candidates'][0]['event_id'],7)
+        self.assertIn({'role':'arbitrary_property','value':'00042'},result['candidates'][0]['roles'])
+        self.assertFalse(result['coverage']['complete'])
+
+    def test_semantic_only_and_multiple_subject_queries_still_work(self):
+        from memory_context import fuse_candidates
+        self.assertEqual([e['event_id'] for e in fuse_candidates([],[],[event(3)])],[3])
+        result=fuse_candidates([event(1,'First'),event(2,'Second')],[],[event(4,'Procedure')])
+        self.assertEqual({e['event_id'] for e in result},{1,2,4})
+
+    def test_scoping_uses_stored_identity_fields_not_incidental_source_text(self):
+        from memory_context import scoped_candidates
+        rows=[event(1,'Example Identifier'),event(2,'Different person',source='mentions identifier'),
+              event(3,'Another subject')]
+        rows[2]['roles'].append({'role':'person','value':'Identifier'})
+        self.assertEqual([e['event_id'] for e in scoped_candidates(rows,['identifier'])],[1,3])
+        self.assertEqual(scoped_candidates(rows,[]),rows)
+
+    async def test_exact_value_channel_survives_identity_scoping(self):
+        from memory_context import assemble_context
+        async def call(name,args):
+            if name=='semantic_recall':return {'events':[event(99,'Unrelated')]}
+            return {'events':[],'total':0,'has_more':False}
+        result=await assemble_context(call,'isolated','question',{'events':[event(2,'Value match')],
+            'identity_events':[event(1,'Example Identifier')],'identity_anchors':['identifier']})
+        ids=[e['event_id'] for e in result['candidates']]
+        self.assertIn(1,ids);self.assertIn(2,ids);self.assertNotIn(99,ids)
+        self.assertEqual(result['coverage']['outside_identity_scope']['semantic'],1)
+        self.assertEqual(result['coverage']['identity_anchors'],['identifier'])
 
 class LiteralDiscoveryTests(unittest.TestCase):
     def test_partial_person_name_is_discovered_without_guessing_a_frame(self):
@@ -122,9 +189,9 @@ class GateTests(unittest.IsolatedAsyncioTestCase):
             calls.append(q);return {'candidates':[event(1)],'scope':'untrusted evidence'}
         with patch.dict(sys.modules,{'models':models,'models.inference':module}):
             await gate.enrich(p,config={'enabled':True},retrieve=retrieve)
-            self.assertIn('original observation',p.messages[0].content)
+            self.assertIn('original observation',p.messages[1].content)
             await gate.enrich(p,config={'enabled':True},retrieve=retrieve)
-        self.assertEqual(len(p.messages),2)
+        self.assertEqual(len(p.messages),3)
         self.assertEqual(calls,['question','question'])
         self.assertEqual(p.messages[-1].content,'question')
     async def test_completed_read_plan_does_not_return_to_tool_search(self):
@@ -148,7 +215,7 @@ class GateTests(unittest.IsolatedAsyncioTestCase):
         async def retrieve(q):return {'candidates':[event(8)],'plan':{'mode':'relational'}}
         with patch.dict(sys.modules,{'models':models,'models.inference':module}):
             self.assertTrue(await gate.enrich(p,config={'enabled':True,'always_retrieve':True},retrieve=retrieve))
-        self.assertIn('original observation',p.messages[0].content)
+        self.assertIn('original observation',p.messages[1].content)
         self.assertFalse(p.enable_tools)
         self.assertEqual(p.tool_choice,'none')
 
@@ -168,9 +235,9 @@ class GateTests(unittest.IsolatedAsyncioTestCase):
         async def retrieve(q):return {'candidates':[event(8)],'plan':{'mode':'relational'}}
         with patch.dict(sys.modules,{'models':models,'models.inference':module}):
             await gate.enrich(p,config={'enabled':True,'read_answer_only':True},retrieve=retrieve)
-        self.assertEqual([m.role for m in p.messages],['system','user'])
+        self.assertEqual([m.role for m in p.messages],['system','system','user'])
         self.assertNotIn('UNVERIFIED_OLD_ANSWER',str([m.content for m in p.messages]))
-        self.assertIn('original observation',p.messages[0].content)
+        self.assertIn('original observation',p.messages[1].content)
         self.assertEqual(p.messages[-1].content,'current subject')
 
     async def test_failure_stops_before_injection(self):
@@ -200,8 +267,8 @@ class ExplorationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(p.tool_choice,'auto');self.assertTrue(p.mcp_enabled)
         self.assertFalse(p.enable_tools);self.assertEqual(p.permission_mode,'auto')
         self.assertNotIn('UNVERIFIED',str([m.content for m in p.messages]))
-        self.assertEqual([m.role for m in p.messages],['system','system','user'])
-        self.assertIn('1234567890abcdef',p.messages[0].content)
+        self.assertEqual([m.role for m in p.messages],['system','system','system','user'])
+        self.assertIn('1234567890abcdef',p.messages[1].content)
         self.assertEqual(p.messages[-1].content,'Current question')
     async def test_preload_uses_real_names_and_preserves_validation_schema(self):
         spec={'type':'function','function':{'name':'mcp__example__query_facts','description':'real tool',
